@@ -197,6 +197,19 @@ go run ./cmd/qstream-migrate export mysql \
   --tables region,nation
 ```
 
+Post exported JSONL directly with Go:
+
+```bash
+go run ./cmd/qstream-migrate post-jsonl \
+  --input /tmp/qstream-migrate-tpch-exports \
+  --target http://127.0.0.1:8088/ingest/json \
+  --batch-size 2000
+```
+
+`post-jsonl` reads `load-order.txt` when present. Otherwise it posts
+`*.jsonl` files in lexical order. By default it sends a final commit request
+after all rows are accepted.
+
 Future commands are expected to build on the generated schemas and plan:
 
 ```bash

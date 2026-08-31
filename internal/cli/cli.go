@@ -22,6 +22,7 @@ import (
 	"github.com/QuantaStream/qstream-migrate/internal/model"
 	"github.com/QuantaStream/qstream-migrate/internal/mysqlsource"
 	"github.com/QuantaStream/qstream-migrate/internal/output"
+	"github.com/QuantaStream/qstream-migrate/internal/postjsonl"
 	"github.com/QuantaStream/qstream-migrate/internal/schemacmp"
 )
 
@@ -43,6 +44,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return runGenerate(args[1:], stdout, stderr)
 	case "load-plan":
 		return runLoadPlan(args[1:], stdout, stderr)
+	case "post-jsonl":
+		return runPostJSONL(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return 0
@@ -61,6 +64,7 @@ func printUsage(w io.Writer) {
   qstream-migrate export mysql --dsn DSN --plan migration-plan/plan.yaml --out exports [flags]
   qstream-migrate generate --plan migration-plan/plan.yaml --out configuration [flags]
   qstream-migrate load-plan --plan migration-plan/plan.yaml --out migration-load [flags]
+  qstream-migrate post-jsonl --input exports --target http://127.0.0.1:8088/ingest/json [flags]
 
 Commands:
   analyze mysql   Inspect a MySQL schema and produce an editable migration plan.
@@ -69,6 +73,7 @@ Commands:
   export mysql    Export MySQL rows as QuantaStream JSONL events.
   generate        Generate QuantaStream schema YAML from an editable plan.
   load-plan       Generate MySQL export and QuantaStream loader runbook files.
+  post-jsonl      Post exported JSONL files to the QuantaStream loader.
 
 Run "qstream-migrate <command> --help" for command flags.`)
 }
@@ -500,6 +505,61 @@ func runLoadPlan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "wrote %s\n", path)
 	}
 	fmt.Fprintf(stdout, "load_plan tables=%d out=%s\n", len(result.LoadOrder), outDir)
+	return 0
+}
+
+func runPostJSONL(args []string, stdout, stderr io.Writer) int {
+	var (
+		inputDir  string
+		targetURL string
+		batchSize int
+		commitURL string
+		commit    bool
+	)
+
+	fs := flag.NewFlagSet("qstream-migrate post-jsonl", flag.ContinueOnError)
+	if hasHelpFlag(args) {
+		fs.SetOutput(stdout)
+	} else {
+		fs.SetOutput(stderr)
+	}
+	fs.StringVar(&inputDir, "input", "exports", "Input directory containing JSONL files and optional load-order.txt")
+	fs.StringVar(&targetURL, "target", "http://127.0.0.1:8088/ingest/json", "QuantaStream loader JSON ingest URL")
+	fs.IntVar(&batchSize, "batch-size", 2000, "Rows per JSON ingest request")
+	fs.StringVar(&commitURL, "commit-url", "", "Optional QuantaStream loader commit URL; derived from --target when possible")
+	fs.BoolVar(&commit, "commit", true, "POST to the loader commit endpoint after all rows are accepted")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if inputDir == "" {
+		fmt.Fprintln(stderr, "--input is required")
+		return 2
+	}
+	if targetURL == "" {
+		fmt.Fprintln(stderr, "--target is required")
+		return 2
+	}
+
+	result, err := postjsonl.PostDir(context.Background(), postjsonl.Options{
+		InputDir:  inputDir,
+		TargetURL: targetURL,
+		BatchSize: batchSize,
+		CommitURL: commitURL,
+		Commit:    commit,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "post jsonl: %v\n", err)
+		return 1
+	}
+	for _, table := range result.Tables {
+		fmt.Fprintf(stdout, "posted table=%s sent=%d accepted=%d failed=%d batches=%d path=%s\n",
+			table.Table, table.Sent, table.Accepted, table.Failed, table.Batches, table.Path)
+	}
+	fmt.Fprintf(stdout, "post_jsonl sent=%d accepted=%d failed=%d batches=%d committed=%t\n",
+		result.Sent, result.Accepted, result.Failed, result.Batches, result.Committed)
 	return 0
 }
 
