@@ -25,10 +25,12 @@ type Result struct {
 }
 
 type qstreamSchema struct {
-	TableName  string             `yaml:"tableName"`
-	PrimaryKey string             `yaml:"primaryKey"`
-	Selector   string             `yaml:"selector"`
-	Attributes []qstreamAttribute `yaml:"attributes"`
+	TableName        string             `yaml:"tableName"`
+	PrimaryKey       string             `yaml:"primaryKey"`
+	Selector         string             `yaml:"selector"`
+	TimeQuantumType  string             `yaml:"timeQuantumType,omitempty"`
+	TimeQuantumField string             `yaml:"timeQuantumField,omitempty"`
+	Attributes       []qstreamAttribute `yaml:"attributes"`
 }
 
 type qstreamAttribute struct {
@@ -140,6 +142,9 @@ func buildSchema(table model.TablePlan, opts Options) (qstreamSchema, error) {
 		PrimaryKey: strings.Join(table.PrimaryKey, "+"),
 		Selector:   fmt.Sprintf("type=%q", table.Name),
 	}
+	if err := applyTimeQuantum(table, &schema); err != nil {
+		return qstreamSchema{}, err
+	}
 	for _, field := range table.Fields {
 		if !field.Include {
 			continue
@@ -154,6 +159,28 @@ func buildSchema(table model.TablePlan, opts Options) (qstreamSchema, error) {
 		return qstreamSchema{}, fmt.Errorf("table %s has no included fields", table.Name)
 	}
 	return schema, nil
+}
+
+func applyTimeQuantum(table model.TablePlan, schema *qstreamSchema) error {
+	if table.TimeQuantum == nil {
+		return nil
+	}
+	field := strings.TrimSpace(table.TimeQuantum.Field)
+	quantumType := strings.TrimSpace(table.TimeQuantum.Type)
+	if field == "" {
+		return nil
+	}
+	if quantumType == "" {
+		return fmt.Errorf("table %s time_quantum requires type when field is set", table.Name)
+	}
+	for _, tableField := range table.Fields {
+		if tableField.Name == field && tableField.Include {
+			schema.TimeQuantumType = quantumType
+			schema.TimeQuantumField = field
+			return nil
+		}
+	}
+	return fmt.Errorf("table %s time_quantum field %s is not an included field", table.Name, field)
 }
 
 func relationshipsByColumn(table model.TablePlan, mode string) (map[string]model.RelationshipPlan, error) {

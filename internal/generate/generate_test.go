@@ -53,6 +53,61 @@ func TestWriteSchemasUsesMetadataRelationships(t *testing.T) {
 	assertContains(t, payload, "granularity: second\n")
 }
 
+func TestWriteSchemasEmitsReviewedTimeQuantum(t *testing.T) {
+	dir := t.TempDir()
+	plan := model.MigrationPlan{
+		Settings: model.AnalyzerSettings{DefaultLexPrefixLength: 16},
+		Tables: []model.TablePlan{
+			{
+				Name:        "orders",
+				SourceName:  "orders",
+				Include:     true,
+				PrimaryKey:  []string{"o_orderkey"},
+				TimeQuantum: &model.TimeQuantumPlan{Field: "o_orderdate", Type: "YMD", CandidateFields: []string{"o_orderdate"}},
+				Fields: []model.FieldPlan{
+					{Name: "o_orderkey", SourceName: "o_orderkey", Include: true, RecommendedMappingStrategy: "IntBSI", QuantaStreamType: "Integer", ColumnID: true, SourceOrdinal: 1},
+					{Name: "o_orderdate", SourceName: "o_orderdate", Include: true, RecommendedMappingStrategy: "TimestampBSI", QuantaStreamType: "Date", SourceOrdinal: 2},
+				},
+			},
+		},
+	}
+
+	if _, err := WriteSchemas(plan, Options{OutDir: dir, Overwrite: true}); err != nil {
+		t.Fatalf("WriteSchemas returned error: %v", err)
+	}
+	payload := readFile(t, filepath.Join(dir, "orders", "schema.yaml"))
+	assertContains(t, payload, "timeQuantumType: YMD\n")
+	assertContains(t, payload, "timeQuantumField: o_orderdate\n")
+}
+
+func TestWriteSchemasSkipsUnselectedTimeQuantumReview(t *testing.T) {
+	dir := t.TempDir()
+	plan := model.MigrationPlan{
+		Settings: model.AnalyzerSettings{DefaultLexPrefixLength: 16},
+		Tables: []model.TablePlan{
+			{
+				Name:        "orders",
+				SourceName:  "orders",
+				Include:     true,
+				PrimaryKey:  []string{"o_orderkey"},
+				TimeQuantum: &model.TimeQuantumPlan{Type: "YMD", CandidateFields: []string{"o_orderdate"}},
+				Fields: []model.FieldPlan{
+					{Name: "o_orderkey", SourceName: "o_orderkey", Include: true, RecommendedMappingStrategy: "IntBSI", QuantaStreamType: "Integer", ColumnID: true, SourceOrdinal: 1},
+					{Name: "o_orderdate", SourceName: "o_orderdate", Include: true, RecommendedMappingStrategy: "TimestampBSI", QuantaStreamType: "Date", SourceOrdinal: 2},
+				},
+			},
+		},
+	}
+
+	if _, err := WriteSchemas(plan, Options{OutDir: dir, Overwrite: true}); err != nil {
+		t.Fatalf("WriteSchemas returned error: %v", err)
+	}
+	payload := readFile(t, filepath.Join(dir, "orders", "schema.yaml"))
+	if strings.Contains(payload, "timeQuantum") {
+		t.Fatalf("unselected time quantum should not be emitted:\n%s", payload)
+	}
+}
+
 func TestWriteSchemasSkipsCandidateRelationshipsByDefault(t *testing.T) {
 	dir := t.TempDir()
 	plan := oneStringTablePlan("orders", "o_orderkey", "o_clerk")

@@ -83,6 +83,36 @@ func TestBuildPlanMappingRecommendations(t *testing.T) {
 		t.Fatalf("amount scale = %v, want 2", fields["amount"].Scale)
 	}
 	assertMapping(t, fields["created_at"], "TimestampBSI", "Date")
+	if plan.Tables[0].TimeQuantum == nil {
+		t.Fatalf("orders should include a time_quantum review")
+	}
+	if plan.Tables[0].TimeQuantum.Type != "YMD" {
+		t.Fatalf("time quantum type = %q, want YMD", plan.Tables[0].TimeQuantum.Type)
+	}
+	if got := plan.Tables[0].TimeQuantum.CandidateFields; len(got) != 1 || got[0] != "created_at" {
+		t.Fatalf("time quantum candidates = %+v, want [created_at]", got)
+	}
+}
+
+func TestBuildPlanOmitsTimeQuantumReviewWithoutDateColumns(t *testing.T) {
+	inv := model.Inventory{
+		Source: model.SourceInfo{Kind: "mysql", Schema: "sales"},
+		Tables: []model.TableInventory{
+			{
+				Name:       "regions",
+				PrimaryKey: []string{"region_id"},
+				Columns: []model.ColumnInventory{
+					{Name: "region_id", Ordinal: 1, DataType: "int", ColumnType: "int"},
+					{Name: "name", Ordinal: 2, DataType: "varchar", ColumnType: "varchar(32)"},
+				},
+			},
+		},
+	}
+
+	plan := BuildPlan(inv, Options{})
+	if plan.Tables[0].TimeQuantum != nil {
+		t.Fatalf("time_quantum = %+v, want nil", plan.Tables[0].TimeQuantum)
+	}
 }
 
 func TestBuildPlanRelationshipsFromForeignKeys(t *testing.T) {

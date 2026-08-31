@@ -26,6 +26,7 @@ A useful migration assistant should:
 - generate QuantaStream schema YAML;
 - generate load commands or scripts;
 - validate migrated row counts and basic aggregate checks;
+- call out date/time tables that may need QuantaStream time partitioning;
 - leave room for a human to adjust the model before loading serious data.
 
 ## Current CLI
@@ -94,6 +95,13 @@ go run ./cmd/qstream-migrate generate \
 
 Use `--relationship-mode none` to generate flat table schemas.
 
+Tables with date or timestamp columns are called out in the plan with a
+`time_quantum` review block. The analyzer lists candidate fields and a suggested
+`YMD` quantum, but it does not choose a partitioning field automatically because
+the right choice depends on query and load patterns. Once reviewed, set
+`time_quantum.field` in `plan.yaml`; `generate` will then emit
+`timeQuantumType` and `timeQuantumField` in the QuantaStream schema.
+
 ## Local Smoke
 
 If you have a local MySQL sample database, set the DSN in your shell and run the
@@ -154,6 +162,7 @@ The first practical analyzer should gather facts such as:
 - foreign-key candidate validation;
 - date and timestamp ranges;
 - decimal scale;
+- likely time-partitioning candidates;
 - whether a string behaves like an identifier, a dimension, or free text.
 
 Those facts can drive QuantaStream mapping recommendations.
@@ -172,6 +181,8 @@ Initial rules of thumb:
 - money and fixed-scale decimal values should usually map to `FloatScaleBSI`;
 - relationships should be generated only when source metadata or profiling can
   prove the parent/child relationship is sound enough to model.
+- tables with date/time columns should be reviewed for `timeQuantumType` and
+  `timeQuantumField` before loading larger data sets.
 
 These are recommendations, not magic. The generated plan should be editable.
 

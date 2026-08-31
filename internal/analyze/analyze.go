@@ -46,6 +46,9 @@ func BuildPlan(inv model.Inventory, opts Options) model.MigrationPlan {
 		if len(table.PrimaryKey) == 0 {
 			tablePlan.Notes = append(tablePlan.Notes, "No primary key was found in MySQL metadata; choose a stable QuantaStream primary key before loading.")
 		}
+		if timeQuantum := recommendTimeQuantumReview(table); timeQuantum != nil {
+			tablePlan.TimeQuantum = timeQuantum
+		}
 		for _, column := range table.Columns {
 			tablePlan.Fields = append(tablePlan.Fields, recommendField(table, column, opts))
 		}
@@ -54,6 +57,28 @@ func BuildPlan(inv model.Inventory, opts Options) model.MigrationPlan {
 		plan.Tables = append(plan.Tables, tablePlan)
 	}
 	return plan
+}
+
+func recommendTimeQuantumReview(table model.TableInventory) *model.TimeQuantumPlan {
+	var candidates []string
+	for _, column := range table.Columns {
+		if isDateType(strings.ToLower(column.DataType)) {
+			candidates = append(candidates, column.Name)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	return &model.TimeQuantumPlan{
+		Type:            "YMD",
+		CandidateFields: append([]string(nil), candidates...),
+		Rationale: []string{
+			"Tables with date/time fields are often candidates for QuantaStream time partitioning.",
+		},
+		Warnings: []string{
+			"Review access patterns before loading; set time_quantum.field to the chosen date/time field when time partitioning should be emitted.",
+		},
+	}
 }
 
 func metadataRelationships(table model.TableInventory) []model.RelationshipPlan {

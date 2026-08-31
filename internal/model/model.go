@@ -105,9 +105,18 @@ type TablePlan struct {
 	Include       bool               `json:"include" yaml:"include"`
 	PrimaryKey    []string           `json:"primary_key,omitempty" yaml:"primary_key,omitempty"`
 	RowCount      int64              `json:"row_count,omitempty" yaml:"row_count,omitempty"`
+	TimeQuantum   *TimeQuantumPlan   `json:"time_quantum,omitempty" yaml:"time_quantum,omitempty"`
 	Fields        []FieldPlan        `json:"fields" yaml:"fields"`
 	Relationships []RelationshipPlan `json:"relationships,omitempty" yaml:"relationships,omitempty"`
 	Notes         []string           `json:"notes,omitempty" yaml:"notes,omitempty"`
+}
+
+type TimeQuantumPlan struct {
+	Field           string   `json:"field,omitempty" yaml:"field,omitempty"`
+	Type            string   `json:"type,omitempty" yaml:"type,omitempty"`
+	CandidateFields []string `json:"candidate_fields,omitempty" yaml:"candidate_fields,omitempty"`
+	Rationale       []string `json:"rationale,omitempty" yaml:"rationale,omitempty"`
+	Warnings        []string `json:"warnings,omitempty" yaml:"warnings,omitempty"`
 }
 
 type FieldPlan struct {
