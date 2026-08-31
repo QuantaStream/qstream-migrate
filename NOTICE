@@ -1,0 +1,20 @@
+qstream-migrate
+
+This repository is a new QuantaStream companion project started in 2026 by Guy
+Anthony Molinari.
+
+The contents of this repository are licensed under the MIT License unless a
+file states otherwise.
+
+QuantaStream is a separate database engine project licensed separately under
+the Elastic License 2.0. This repository is intended to contain
+migration-assistant code, generated schema examples, documentation, and
+validation tooling. It should not include copied QuantaStream engine
+implementation code.
+
+This repository is not a fork of Disney/Quanta, and no Disney/Quanta source
+code is intentionally included at repository creation.
+
+This repository may refer to MySQL, Tableau, and other third-party systems as
+interoperability targets. Those names are trademarks of their respective
+owners. No third-party endorsement is implied.
