@@ -17,6 +17,7 @@ import (
 	"github.com/QuantaStream/qstream-migrate/internal/analyze"
 	checkpkg "github.com/QuantaStream/qstream-migrate/internal/check"
 	"github.com/QuantaStream/qstream-migrate/internal/generate"
+	"github.com/QuantaStream/qstream-migrate/internal/loadplan"
 	"github.com/QuantaStream/qstream-migrate/internal/model"
 	"github.com/QuantaStream/qstream-migrate/internal/mysqlsource"
 	"github.com/QuantaStream/qstream-migrate/internal/output"
@@ -37,6 +38,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return runCompareSchema(args[1:], stdout, stderr)
 	case "generate":
 		return runGenerate(args[1:], stdout, stderr)
+	case "load-plan":
+		return runLoadPlan(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return 0
@@ -53,12 +56,14 @@ func printUsage(w io.Writer) {
   qstream-migrate check --plan migration-plan/plan.yaml [flags]
   qstream-migrate compare-schema --generated configuration --reference reference-config [flags]
   qstream-migrate generate --plan migration-plan/plan.yaml --out configuration [flags]
+  qstream-migrate load-plan --plan migration-plan/plan.yaml --out migration-load [flags]
 
 Commands:
   analyze mysql   Inspect a MySQL schema and produce an editable migration plan.
   check           Validate that a migration plan is ready to generate or load.
   compare-schema  Compare generated QuantaStream schemas against a reference config.
   generate        Generate QuantaStream schema YAML from an editable plan.
+  load-plan       Generate MySQL export and QuantaStream loader runbook files.
 
 Run "qstream-migrate <command> --help" for command flags.`)
 }
@@ -334,6 +339,66 @@ func runGenerate(args []string, stdout, stderr io.Writer) int {
 	for _, path := range result.Files {
 		fmt.Fprintf(stdout, "wrote %s\n", path)
 	}
+	return 0
+}
+
+func runLoadPlan(args []string, stdout, stderr io.Writer) int {
+	var (
+		planPath         string
+		outDir           string
+		relationshipMode string
+		loaderTarget     string
+		batchSize        int
+		overwrite        bool
+	)
+
+	fs := flag.NewFlagSet("qstream-migrate load-plan", flag.ContinueOnError)
+	if hasHelpFlag(args) {
+		fs.SetOutput(stdout)
+	} else {
+		fs.SetOutput(stderr)
+	}
+	fs.StringVar(&planPath, "plan", "", "Path to qstream-migrate plan.yaml")
+	fs.StringVar(&outDir, "out", "migration-load", "Output directory for load runbook files")
+	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode to use for parent-before-child ordering: metadata, all, or none")
+	fs.StringVar(&loaderTarget, "loader-target", "http://127.0.0.1:8088/ingest/json", "QuantaStream loader JSON ingest URL")
+	fs.IntVar(&batchSize, "batch-size", 2000, "Rows per JSON ingest request in the generated posting script")
+	fs.BoolVar(&overwrite, "overwrite", true, "Overwrite existing generated load-plan files")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if planPath == "" {
+		fmt.Fprintln(stderr, "--plan is required")
+		return 2
+	}
+	if !isRelationshipMode(relationshipMode) {
+		fmt.Fprintf(stderr, "unsupported relationship mode %q; use metadata, all, or none\n", relationshipMode)
+		return 2
+	}
+
+	plan, err := readPlan(planPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	result, err := loadplan.Write(plan, loadplan.Options{
+		OutDir:           outDir,
+		RelationshipMode: relationshipMode,
+		LoaderTarget:     loaderTarget,
+		BatchSize:        batchSize,
+		Overwrite:        overwrite,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "write load plan: %v\n", err)
+		return 1
+	}
+	for _, path := range result.Files {
+		fmt.Fprintf(stdout, "wrote %s\n", path)
+	}
+	fmt.Fprintf(stdout, "load_plan tables=%d out=%s\n", len(result.LoadOrder), outDir)
 	return 0
 }
 

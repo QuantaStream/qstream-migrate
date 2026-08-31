@@ -31,7 +31,8 @@ A useful migration assistant should:
 
 ## Current CLI
 
-The first implemented flow is `analyze mysql`, `check`, and `generate`.
+The first implemented flow is `analyze mysql`, `check`, `generate`, and
+`load-plan`.
 
 `analyze mysql` inspects MySQL metadata, profiles the source data, and writes an
 editable migration plan:
@@ -153,6 +154,26 @@ go run ./cmd/qstream-migrate generate \
   --plan /tmp/qstream-migrate-tpch/plan.yaml \
   --out /tmp/qstream-migrate-tpch-config
 ```
+
+Generate an editable load runbook from the same reviewed plan:
+
+```bash
+go run ./cmd/qstream-migrate load-plan \
+  --plan /tmp/qstream-migrate-tpch/plan.yaml \
+  --out /tmp/qstream-migrate-tpch-load \
+  --relationship-mode all \
+  --loader-target http://127.0.0.1:8088/ingest/json \
+  --batch-size 2000
+```
+
+The load plan contains:
+
+- `load-order.txt`: parent-before-child table order based on the selected
+  relationship mode;
+- `queries/<table>.json.sql`: MySQL export SQL that emits one QuantaStream JSON
+  event per source row;
+- `scripts/export-jsonl.sh`: exports each table to JSONL using the MySQL CLI;
+- `scripts/post-jsonl.sh`: batches JSONL into the QuantaStream loader.
 
 Future commands are expected to build on the generated schemas and plan:
 
