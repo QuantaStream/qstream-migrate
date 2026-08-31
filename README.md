@@ -208,7 +208,11 @@ go run ./cmd/qstream-migrate post-jsonl \
 
 `post-jsonl` reads `load-order.txt` when present. Otherwise it posts
 `*.jsonl` files in lexical order. By default it sends a final commit request
-after all rows are accepted.
+after all rows are accepted. When the target ends in `/ingest/json`, it also
+checks the loader `/stats` endpoint before posting and confirms that every
+table from the load order is mounted by the target loader. Use
+`--skip-loader-check` only for mock endpoints or deliberately custom loader
+front ends.
 
 Validate row counts between the source and QuantaStream:
 

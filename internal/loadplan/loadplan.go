@@ -338,11 +338,69 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPORT_DIR="${1:-"$ROOT_DIR/exports"}"
 QS_LOADER_TARGET="${QS_LOADER_TARGET:-%s}"
 BATCH_SIZE="${BATCH_SIZE:-%d}"
+QS_LOADER_CHECK_TABLES="${QS_LOADER_CHECK_TABLES:-1}"
 
 if [ -z "${QS_LOADER_COMMIT_URL:-}" ]; then
   if [[ "$QS_LOADER_TARGET" == */ingest/json ]]; then
     QS_LOADER_COMMIT_URL="${QS_LOADER_TARGET%%/ingest/json}/commit"
   fi
+fi
+
+if [ -z "${QS_LOADER_STATS_URL:-}" ]; then
+  if [[ "$QS_LOADER_TARGET" == */ingest/json ]]; then
+    QS_LOADER_STATS_URL="${QS_LOADER_TARGET%%/ingest/json}/stats"
+  fi
+fi
+
+if [ "$QS_LOADER_CHECK_TABLES" != "0" ] && [ -n "${QS_LOADER_STATS_URL:-}" ]; then
+  python3 - "$QS_LOADER_STATS_URL" "$ROOT_DIR/load-order.txt" <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+
+stats_url, load_order_path = sys.argv[1:3]
+with open(load_order_path, "r", encoding="utf-8") as handle:
+    expected = [line.strip() for line in handle if line.strip()]
+
+try:
+    with urllib.request.urlopen(stats_url, timeout=30) as response:
+        body = response.read()
+        status_code = response.getcode()
+except urllib.error.HTTPError as err:
+    detail = err.read().decode("utf-8", "replace")
+    raise SystemExit(f"loader table guard failed: HTTP {err.code} from {stats_url}: {detail}")
+except Exception as err:
+    raise SystemExit(f"loader table guard failed: read {stats_url}: {err}")
+
+if status_code < 200 or status_code >= 300:
+    raise SystemExit(f"loader table guard failed: HTTP {status_code} from {stats_url}")
+
+try:
+    stats = json.loads(body)
+except json.JSONDecodeError as err:
+    raise SystemExit(f"loader table guard failed: decode {stats_url}: {err}")
+
+status = stats.get("status")
+if status not in (None, "", "ok"):
+    raise SystemExit(f"loader table guard failed: loader status is {status!r}")
+
+tables = stats.get("tables")
+if not isinstance(tables, list) or not tables:
+    raise SystemExit(f"loader table guard failed: {stats_url} did not report mounted table names")
+
+mounted = set(tables)
+missing = [table for table in expected if table not in mounted]
+if missing:
+    raise SystemExit(
+        "loader table guard failed: missing expected table(s): "
+        + ", ".join(missing)
+        + "; mounted table(s): "
+        + ", ".join(tables)
+    )
+
+print(f"loader table guard ok tables={len(tables)}")
+PY
 fi
 
 while IFS= read -r table; do

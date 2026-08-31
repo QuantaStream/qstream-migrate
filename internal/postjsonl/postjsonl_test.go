@@ -20,8 +20,12 @@ func TestPostDirPostsInLoadOrderAndCommits(t *testing.T) {
 
 	var batches []int
 	var commitCalls int
+	var statsCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/stats":
+			statsCalls++
+			_, _ = w.Write([]byte(`{"status":"ok","tables":["region","nation"]}`))
 		case "/ingest/json":
 			var body struct {
 				Records []json.RawMessage `json:"records"`
@@ -57,6 +61,43 @@ func TestPostDirPostsInLoadOrderAndCommits(t *testing.T) {
 	}
 	if commitCalls != 1 {
 		t.Fatalf("commit calls = %d, want 1", commitCalls)
+	}
+	if statsCalls != 1 {
+		t.Fatalf("stats calls = %d, want 1", statsCalls)
+	}
+}
+
+func TestPostDirFailsWhenLoaderIsMissingExpectedTables(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "load-order.txt"), "part\nregion\n")
+	writeFile(t, filepath.Join(dir, "part.jsonl"), `{"type":"part","data":{"p_partkey":1}}`+"\n")
+	writeFile(t, filepath.Join(dir, "region.jsonl"), `{"type":"region","data":{"r_regionkey":1}}`+"\n")
+
+	var postCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/stats":
+			_, _ = w.Write([]byte(`{"status":"ok","tables":["region"]}`))
+		case "/ingest/json":
+			postCalls++
+			_, _ = w.Write([]byte(`{"accepted":1,"failed":0}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	_, err := PostDir(context.Background(), Options{
+		InputDir:  dir,
+		TargetURL: server.URL + "/ingest/json",
+		BatchSize: 1,
+		Commit:    false,
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing expected table(s): part") {
+		t.Fatalf("expected missing table guard error, got %v", err)
+	}
+	if postCalls != 0 {
+		t.Fatalf("post calls = %d, want 0", postCalls)
 	}
 }
 

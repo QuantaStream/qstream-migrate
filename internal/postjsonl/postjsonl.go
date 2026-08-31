@@ -16,12 +16,14 @@ import (
 )
 
 type Options struct {
-	InputDir   string
-	TargetURL  string
-	BatchSize  int
-	CommitURL  string
-	Commit     bool
-	HTTPClient *http.Client
+	InputDir        string
+	TargetURL       string
+	BatchSize       int
+	CommitURL       string
+	LoaderStatsURL  string
+	SkipLoaderCheck bool
+	Commit          bool
+	HTTPClient      *http.Client
 }
 
 type TableResult struct {
@@ -48,10 +50,18 @@ type ingestResponse struct {
 	Errors   []string `json:"errors"`
 }
 
+type loaderStats struct {
+	Status string   `json:"status"`
+	Tables []string `json:"tables"`
+}
+
 func PostDir(ctx context.Context, opts Options) (Result, error) {
 	opts = normalizeOptions(opts)
 	order, err := tableOrder(opts.InputDir)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := verifyLoaderTables(ctx, opts, order); err != nil {
 		return Result{}, err
 	}
 
@@ -89,10 +99,21 @@ func normalizeOptions(opts Options) Options {
 	if opts.CommitURL == "" && strings.HasSuffix(opts.TargetURL, "/ingest/json") {
 		opts.CommitURL = strings.TrimSuffix(opts.TargetURL, "/ingest/json") + "/commit"
 	}
+	if opts.LoaderStatsURL == "" {
+		opts.LoaderStatsURL = deriveStatsURL(opts.TargetURL)
+	}
 	if opts.HTTPClient == nil {
 		opts.HTTPClient = &http.Client{Timeout: 5 * time.Minute}
 	}
 	return opts
+}
+
+func deriveStatsURL(targetURL string) string {
+	targetURL = strings.TrimRight(targetURL, "/")
+	if !strings.HasSuffix(targetURL, "/ingest/json") {
+		return ""
+	}
+	return strings.TrimSuffix(targetURL, "/ingest/json") + "/stats"
 }
 
 func tableOrder(inputDir string) ([]string, error) {
@@ -125,6 +146,52 @@ func tableOrder(inputDir string) ([]string, error) {
 	}
 	sort.Strings(order)
 	return order, nil
+}
+
+func verifyLoaderTables(ctx context.Context, opts Options, expected []string) error {
+	if opts.SkipLoaderCheck || opts.LoaderStatsURL == "" {
+		return nil
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, opts.LoaderStatsURL, nil)
+	if err != nil {
+		return fmt.Errorf("loader table guard: %w", err)
+	}
+	response, err := opts.HTTPClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("loader table guard: read %s: %w", opts.LoaderStatsURL, err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return fmt.Errorf("loader table guard: read response: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("loader table guard: HTTP %d from %s: %s", response.StatusCode, opts.LoaderStatsURL, strings.TrimSpace(string(body)))
+	}
+	var stats loaderStats
+	if err := json.Unmarshal(body, &stats); err != nil {
+		return fmt.Errorf("loader table guard: decode %s: %w", opts.LoaderStatsURL, err)
+	}
+	if stats.Status != "" && stats.Status != "ok" {
+		return fmt.Errorf("loader table guard: loader status is %q", stats.Status)
+	}
+	if len(stats.Tables) == 0 {
+		return fmt.Errorf("loader table guard: %s did not report mounted table names", opts.LoaderStatsURL)
+	}
+	mounted := make(map[string]bool, len(stats.Tables))
+	for _, table := range stats.Tables {
+		mounted[table] = true
+	}
+	var missing []string
+	for _, table := range expected {
+		if !mounted[table] {
+			missing = append(missing, table)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("loader table guard: target %s is missing expected table(s): %s; mounted table(s): %s", opts.LoaderStatsURL, strings.Join(missing, ", "), strings.Join(stats.Tables, ", "))
+	}
+	return nil
 }
 
 func postTable(ctx context.Context, table, path string, opts Options) (TableResult, error) {

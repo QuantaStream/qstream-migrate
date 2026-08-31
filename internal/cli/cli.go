@@ -515,11 +515,13 @@ func runLoadPlan(args []string, stdout, stderr io.Writer) int {
 
 func runPostJSONL(args []string, stdout, stderr io.Writer) int {
 	var (
-		inputDir  string
-		targetURL string
-		batchSize int
-		commitURL string
-		commit    bool
+		inputDir        string
+		targetURL       string
+		batchSize       int
+		commitURL       string
+		loaderStatsURL  string
+		skipLoaderCheck bool
+		commit          bool
 	)
 
 	fs := flag.NewFlagSet("qstream-migrate post-jsonl", flag.ContinueOnError)
@@ -532,6 +534,8 @@ func runPostJSONL(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&targetURL, "target", "http://127.0.0.1:8088/ingest/json", "QuantaStream loader JSON ingest URL")
 	fs.IntVar(&batchSize, "batch-size", 2000, "Rows per JSON ingest request")
 	fs.StringVar(&commitURL, "commit-url", "", "Optional QuantaStream loader commit URL; derived from --target when possible")
+	fs.StringVar(&loaderStatsURL, "loader-stats-url", "", "Optional QuantaStream loader stats URL used to verify mounted tables; derived from --target when possible")
+	fs.BoolVar(&skipLoaderCheck, "skip-loader-check", false, "Skip loader mounted-table preflight check")
 	fs.BoolVar(&commit, "commit", true, "POST to the loader commit endpoint after all rows are accepted")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -549,11 +553,13 @@ func runPostJSONL(args []string, stdout, stderr io.Writer) int {
 	}
 
 	result, err := postjsonl.PostDir(context.Background(), postjsonl.Options{
-		InputDir:  inputDir,
-		TargetURL: targetURL,
-		BatchSize: batchSize,
-		CommitURL: commitURL,
-		Commit:    commit,
+		InputDir:        inputDir,
+		TargetURL:       targetURL,
+		BatchSize:       batchSize,
+		CommitURL:       commitURL,
+		LoaderStatsURL:  loaderStatsURL,
+		SkipLoaderCheck: skipLoaderCheck,
+		Commit:          commit,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "post jsonl: %v\n", err)
