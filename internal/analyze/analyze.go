@@ -74,7 +74,7 @@ func metadataRelationships(table model.TableInventory) []model.RelationshipPlan 
 func candidateRelationships(inv model.Inventory, child model.TableInventory) []model.RelationshipPlan {
 	var candidates []model.RelationshipPlan
 	for _, column := range child.Columns {
-		if isForeignKeyColumn(child, column.Name) || isPrimaryKeyColumn(child, column.Name) {
+		if isForeignKeyColumn(child, column.Name) || isSingleColumnPrimaryKey(child, column.Name) {
 			continue
 		}
 		for _, parent := range inv.Tables {
@@ -82,13 +82,17 @@ func candidateRelationships(inv model.Inventory, child model.TableInventory) []m
 				continue
 			}
 			parentPK := parent.PrimaryKey[0]
+			parentColumn, ok := columnByName(parent, parentPK)
+			if !ok || !columnTypesCompatible(column, parentColumn) {
+				continue
+			}
 			if !columnLooksLikeReference(column.Name, parent.Name, parentPK) {
 				continue
 			}
 			candidates = append(candidates, model.RelationshipPlan{
 				Name:          "candidate_" + child.Name + "_" + column.Name + "_to_" + parent.Name + "_" + parentPK,
 				Kind:          "candidate_foreign_key",
-				Confidence:    "name_match",
+				Confidence:    "name_and_type_match",
 				Columns:       []string{column.Name},
 				ParentTable:   parent.Name,
 				ParentColumns: []string{parentPK},
@@ -106,12 +110,51 @@ func columnLooksLikeReference(columnName, parentTable, parentPK string) bool {
 	table := strings.ToLower(parentTable)
 	singular := strings.TrimSuffix(table, "s")
 	pk := strings.ToLower(parentPK)
+	normalizedColumn := normalizeKeyName(column)
+	normalizedPK := normalizeKeyName(pk)
 
 	return (pk != "id" && pk != "key" && column == pk) ||
+		(normalizedPK != "" && normalizedPK != "id" && normalizedColumn == normalizedPK) ||
 		column == table+"_"+pk ||
 		column == singular+"_"+pk ||
 		column == table+"_key" ||
 		column == singular+"_key"
+}
+
+func normalizeKeyName(name string) string {
+	lower := strings.ToLower(name)
+	parts := strings.Split(lower, "_")
+	if len(parts) > 1 {
+		lower = parts[len(parts)-1]
+	}
+	for _, prefix := range []string{"pk", "fk"} {
+		lower = strings.TrimPrefix(lower, prefix+"_")
+	}
+	return lower
+}
+
+func columnByName(table model.TableInventory, name string) (model.ColumnInventory, bool) {
+	for _, column := range table.Columns {
+		if column.Name == name {
+			return column, true
+		}
+	}
+	return model.ColumnInventory{}, false
+}
+
+func columnTypesCompatible(left, right model.ColumnInventory) bool {
+	leftType := strings.ToLower(left.DataType)
+	rightType := strings.ToLower(right.DataType)
+	if leftType == rightType {
+		return true
+	}
+	if isIntegerType(leftType) && isIntegerType(rightType) {
+		return true
+	}
+	if isStringType(leftType) && isStringType(rightType) {
+		return true
+	}
+	return false
 }
 
 func tableRowCount(table model.TableInventory) int64 {
@@ -190,7 +233,7 @@ func applyStringRecommendation(table model.TableInventory, column model.ColumnIn
 		}
 	}
 
-	isKeyLike := isSingleColumnPrimaryKey(table, column.Name) || isForeignKeyColumn(table, column.Name) || isIndexedColumn(table, column.Name) || looksLikeIdentifier(column.Name)
+	isKeyLike := isSingleColumnPrimaryKey(table, column.Name) || isForeignKeyColumn(table, column.Name) || isUniqueIndexedColumn(table, column.Name) || looksLikeIdentifier(column.Name)
 	isLongText := isTextType(column.DataType) || maxLen > 512
 	isHighCardinality := hasDistinct && distinct > opts.StringEnumMaxDistinct
 	isMostlyUnique := hasDistinct && rowCount > 0 && float64(distinct)/float64(rowCount) > 0.50
@@ -211,7 +254,7 @@ func applyStringRecommendation(table model.TableInventory, column model.ColumnIn
 		}
 		field.LexPrefixLength = &prefix
 		if isKeyLike {
-			field.Rationale = append(field.Rationale, "Identifier, indexed, primary-key, or foreign-key-like string.")
+			field.Rationale = append(field.Rationale, "Identifier, unique-indexed, primary-key, or foreign-key-like string.")
 		}
 		if isHighCardinality {
 			field.Rationale = append(field.Rationale, "Distinct count exceeds StringEnum threshold.")
@@ -297,15 +340,6 @@ func isSingleColumnPrimaryKey(table model.TableInventory, column string) bool {
 	return len(table.PrimaryKey) == 1 && table.PrimaryKey[0] == column
 }
 
-func isPrimaryKeyColumn(table model.TableInventory, column string) bool {
-	for _, pkColumn := range table.PrimaryKey {
-		if pkColumn == column {
-			return true
-		}
-	}
-	return false
-}
-
 func isForeignKeyColumn(table model.TableInventory, column string) bool {
 	for _, fk := range table.ForeignKeys {
 		for _, fkColumn := range fk.Columns {
@@ -317,8 +351,11 @@ func isForeignKeyColumn(table model.TableInventory, column string) bool {
 	return false
 }
 
-func isIndexedColumn(table model.TableInventory, column string) bool {
+func isUniqueIndexedColumn(table model.TableInventory, column string) bool {
 	for _, index := range table.Indexes {
+		if !index.Unique {
+			continue
+		}
 		for _, indexColumn := range index.Columns {
 			if indexColumn.Name == column {
 				return true

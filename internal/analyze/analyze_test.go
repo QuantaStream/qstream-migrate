@@ -154,8 +154,84 @@ func TestBuildPlanCandidateRelationshipsFromNames(t *testing.T) {
 		t.Fatalf("candidate relationships = %d, want 1: %+v", len(orders.Relationships), orders.Relationships)
 	}
 	rel := orders.Relationships[0]
-	if rel.Kind != "candidate_foreign_key" || rel.Confidence != "name_match" || rel.ParentTable != "customers" {
+	if rel.Kind != "candidate_foreign_key" || rel.Confidence != "name_and_type_match" || rel.ParentTable != "customers" {
 		t.Fatalf("unexpected candidate relationship: %+v", rel)
+	}
+}
+
+func TestBuildPlanCandidateRelationshipsFromPrefixedKeys(t *testing.T) {
+	inv := model.Inventory{
+		Source: model.SourceInfo{Kind: "mysql", Schema: "tpch"},
+		Tables: []model.TableInventory{
+			{
+				Name:       "customer",
+				PrimaryKey: []string{"c_custkey"},
+				Columns: []model.ColumnInventory{
+					{Name: "c_custkey", Ordinal: 1, DataType: "int", ColumnType: "int"},
+				},
+			},
+			{
+				Name:       "orders",
+				PrimaryKey: []string{"o_orderkey"},
+				Columns: []model.ColumnInventory{
+					{Name: "o_orderkey", Ordinal: 1, DataType: "int", ColumnType: "int"},
+					{Name: "o_custkey", Ordinal: 2, DataType: "int", ColumnType: "int"},
+				},
+			},
+		},
+	}
+
+	plan := BuildPlan(inv, Options{})
+	var orders model.TablePlan
+	for _, table := range plan.Tables {
+		if table.Name == "orders" {
+			orders = table
+		}
+	}
+	if len(orders.Relationships) != 1 {
+		t.Fatalf("candidate relationships = %d, want 1: %+v", len(orders.Relationships), orders.Relationships)
+	}
+	rel := orders.Relationships[0]
+	if rel.Columns[0] != "o_custkey" || rel.ParentTable != "customer" || rel.ParentColumns[0] != "c_custkey" {
+		t.Fatalf("unexpected prefixed-key relationship: %+v", rel)
+	}
+}
+
+func TestBuildPlanCandidateRelationshipsFromCompositePrimaryKeyColumns(t *testing.T) {
+	inv := model.Inventory{
+		Source: model.SourceInfo{Kind: "mysql", Schema: "tpch"},
+		Tables: []model.TableInventory{
+			{
+				Name:       "orders",
+				PrimaryKey: []string{"o_orderkey"},
+				Columns: []model.ColumnInventory{
+					{Name: "o_orderkey", Ordinal: 1, DataType: "int", ColumnType: "int"},
+				},
+			},
+			{
+				Name:       "lineitem",
+				PrimaryKey: []string{"l_orderkey", "l_linenumber"},
+				Columns: []model.ColumnInventory{
+					{Name: "l_orderkey", Ordinal: 1, DataType: "int", ColumnType: "int"},
+					{Name: "l_linenumber", Ordinal: 2, DataType: "int", ColumnType: "int"},
+				},
+			},
+		},
+	}
+
+	plan := BuildPlan(inv, Options{})
+	var lineitem model.TablePlan
+	for _, table := range plan.Tables {
+		if table.Name == "lineitem" {
+			lineitem = table
+		}
+	}
+	if len(lineitem.Relationships) != 1 {
+		t.Fatalf("candidate relationships = %d, want 1: %+v", len(lineitem.Relationships), lineitem.Relationships)
+	}
+	rel := lineitem.Relationships[0]
+	if rel.Columns[0] != "l_orderkey" || rel.ParentTable != "orders" || rel.ParentColumns[0] != "o_orderkey" {
+		t.Fatalf("unexpected composite-key relationship: %+v", rel)
 	}
 }
 

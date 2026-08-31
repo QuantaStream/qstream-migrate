@@ -91,7 +91,7 @@ FROM %[2]s`, col, tbl)
 
 func addStringLengthStats(ctx context.Context, db *sql.DB, tableExpr, columnExpr string, profile *model.ColumnProfile) error {
 	query := fmt.Sprintf(`
-SELECT CHAR_LENGTH(%[1]s) AS value_length, COUNT(*) AS rows
+SELECT CHAR_LENGTH(%[1]s) AS value_length, COUNT(*) AS value_count
 FROM %[2]s
 WHERE %[1]s IS NOT NULL
 GROUP BY CHAR_LENGTH(%[1]s)
@@ -154,11 +154,11 @@ func percentileLength(buckets []lengthBucket, total int64, percentile float64) i
 
 func sampleValues(ctx context.Context, db *sql.DB, tableExpr, columnExpr string, limit int) ([]model.ValueSample, error) {
 	query := fmt.Sprintf(`
-SELECT CAST(%[1]s AS CHAR) AS sample_value, COUNT(*) AS rows
+SELECT CAST(%[1]s AS CHAR) AS sample_value, COUNT(*) AS value_count
 FROM %[2]s
 WHERE %[1]s IS NOT NULL
 GROUP BY %[1]s
-ORDER BY rows DESC, sample_value
+ORDER BY value_count DESC, sample_value
 LIMIT ?`, columnExpr, tableExpr)
 
 	rows, err := db.QueryContext(ctx, query, limit)

@@ -64,6 +64,24 @@ To build a local binary:
 go build -o bin/qstream-migrate ./cmd/qstream-migrate
 ```
 
+## Local Smoke
+
+If you have a local MySQL sample database, set the DSN in your shell and run the
+analyzer into a temporary directory:
+
+```bash
+MYSQL_DSN='user:password@tcp(127.0.0.1:3306)/tpch'
+
+go run ./cmd/qstream-migrate analyze mysql \
+  --dsn "$MYSQL_DSN" \
+  --out /tmp/qstream-migrate-tpch \
+  --sample-limit 3 \
+  --query-timeout 45s
+```
+
+The first local TPC-H smoke run analyzed 8 tables, 61 fields, and produced 9
+relationship candidates with no profile errors.
+
 Future commands are expected to build on the generated plan:
 
 ```bash
