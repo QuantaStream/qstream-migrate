@@ -28,15 +28,45 @@ A useful migration assistant should:
 - validate migrated row counts and basic aggregate checks;
 - leave room for a human to adjust the model before loading serious data.
 
-## Initial CLI Shape
+## Current CLI
 
-The early command shape is expected to look something like this:
+The first implemented command is `analyze mysql`. It inspects MySQL metadata,
+profiles the source data, and writes an editable migration plan:
 
 ```bash
-qstream-migrate analyze mysql \
+go run ./cmd/qstream-migrate analyze mysql \
   --dsn 'user:pass@tcp(127.0.0.1:3306)/dbname' \
   --out ./migration-plan
+```
 
+The output directory contains:
+
+- `inventory.json`: raw MySQL metadata plus collected column profiles;
+- `plan.yaml`: editable QuantaStream migration recommendations;
+- `README.md`: a generated summary and next steps.
+
+Useful flags:
+
+```bash
+go run ./cmd/qstream-migrate analyze mysql \
+  --dsn 'user:pass@tcp(127.0.0.1:3306)/dbname' \
+  --tables orders,customers,lineitem \
+  --sample-limit 10 \
+  --query-timeout 30s \
+  --enum-max-distinct 500 \
+  --lex-prefix-length 16 \
+  --out ./migration-plan
+```
+
+To build a local binary:
+
+```bash
+go build -o bin/qstream-migrate ./cmd/qstream-migrate
+```
+
+Future commands are expected to build on the generated plan:
+
+```bash
 qstream-migrate generate \
   --plan ./migration-plan/plan.yaml \
   --out ./quantastream-schemas
