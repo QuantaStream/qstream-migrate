@@ -301,6 +301,24 @@ The intended QuantaStream ecosystem split is:
 - `qstream-migrate`: migration analysis, schema generation, load orchestration,
   and validation for existing databases.
 
+## Future Direction: QuantaStream Reshape
+
+The same workflow can also help restructure existing QuantaStream databases.
+The near-term direction is a reshape/reload path:
+
+```text
+analyze qs -> compare desired schema -> generate reshape plan -> export qs -> load new schema -> validate -> cut over
+```
+
+That path would support structural changes such as mapper selection,
+`StringLexBSI` prefix changes, time partitioning, relationship-vector modeling,
+flat-table variants, and derived fields without requiring QuantaStream to
+perform every change as an online `ALTER TABLE`.
+
+In-place restructuring may become useful later for changes that QuantaStream can
+validate and apply safely online. Until then, reshape/reload keeps schema design
+and data movement explicit, repeatable, and easier to validate.
+
 ## Provenance And Licensing
 
 This repository is a new QuantaStream companion project started in 2026 by Guy
