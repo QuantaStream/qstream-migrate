@@ -20,6 +20,7 @@ import (
 	"github.com/QuantaStream/qstream-migrate/internal/model"
 	"github.com/QuantaStream/qstream-migrate/internal/mysqlsource"
 	"github.com/QuantaStream/qstream-migrate/internal/output"
+	"github.com/QuantaStream/qstream-migrate/internal/schemacmp"
 )
 
 func Main(args []string, stdout, stderr io.Writer) int {
@@ -32,6 +33,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return runAnalyze(args[1:], stdout, stderr)
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
+	case "compare-schema":
+		return runCompareSchema(args[1:], stdout, stderr)
 	case "generate":
 		return runGenerate(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
@@ -48,11 +51,13 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
   qstream-migrate analyze mysql --dsn DSN [flags]
   qstream-migrate check --plan migration-plan/plan.yaml [flags]
+  qstream-migrate compare-schema --generated configuration --reference reference-config [flags]
   qstream-migrate generate --plan migration-plan/plan.yaml --out configuration [flags]
 
 Commands:
   analyze mysql   Inspect a MySQL schema and produce an editable migration plan.
   check           Validate that a migration plan is ready to generate or load.
+  compare-schema  Compare generated QuantaStream schemas against a reference config.
   generate        Generate QuantaStream schema YAML from an editable plan.
 
 Run "qstream-migrate <command> --help" for command flags.`)
@@ -217,6 +222,53 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "plan_check result=%s errors=%d warnings=%d tables=%d fields=%d\n",
 		result.Status(strict), result.Errors, result.Warnings, result.Tables, result.Fields)
 	if !result.Pass(strict) {
+		return 1
+	}
+	return 0
+}
+
+func runCompareSchema(args []string, stdout, stderr io.Writer) int {
+	var (
+		generatedDir string
+		referenceDir string
+		strict       bool
+	)
+
+	fs := flag.NewFlagSet("qstream-migrate compare-schema", flag.ContinueOnError)
+	if hasHelpFlag(args) {
+		fs.SetOutput(stdout)
+	} else {
+		fs.SetOutput(stderr)
+	}
+	fs.StringVar(&generatedDir, "generated", "", "Generated QuantaStream configuration directory")
+	fs.StringVar(&referenceDir, "reference", "", "Reference QuantaStream configuration directory")
+	fs.BoolVar(&strict, "strict", false, "Fail when differences are present")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if generatedDir == "" {
+		fmt.Fprintln(stderr, "--generated is required")
+		return 2
+	}
+	if referenceDir == "" {
+		fmt.Fprintln(stderr, "--reference is required")
+		return 2
+	}
+
+	result, err := schemacmp.CompareDirs(referenceDir, generatedDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "compare schema: %v\n", err)
+		return 1
+	}
+	for _, line := range schemacmp.FormatDifferences(result) {
+		fmt.Fprintln(stdout, line)
+	}
+	fmt.Fprintf(stdout, "schema_compare result=%s differences=%d tables=%d\n",
+		result.Status(), len(result.Differences), result.TablesCompared)
+	if strict && !result.Match() {
 		return 1
 	}
 	return 0

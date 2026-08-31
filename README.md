@@ -106,6 +106,18 @@ go run ./cmd/qstream-migrate generate \
 
 Use `--relationship-mode none` to generate flat table schemas.
 
+When you have a curated QuantaStream configuration to compare against, use
+`compare-schema` to make the differences explicit:
+
+```bash
+go run ./cmd/qstream-migrate compare-schema \
+  --generated ./configuration \
+  --reference /path/to/reference/configuration
+```
+
+Differences are reported as review items. They do not fail the command unless
+`--strict` is supplied.
+
 Tables with date or timestamp columns are called out in the plan with a
 `time_quantum` review block. The analyzer lists candidate fields and a suggested
 `YMD` quantum, but it does not choose a partitioning field automatically because
