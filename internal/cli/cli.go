@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/QuantaStream/qstream-migrate/internal/analyze"
+	checkpkg "github.com/QuantaStream/qstream-migrate/internal/check"
 	"github.com/QuantaStream/qstream-migrate/internal/generate"
 	"github.com/QuantaStream/qstream-migrate/internal/model"
 	"github.com/QuantaStream/qstream-migrate/internal/mysqlsource"
@@ -29,6 +30,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "analyze":
 		return runAnalyze(args[1:], stdout, stderr)
+	case "check":
+		return runCheck(args[1:], stdout, stderr)
 	case "generate":
 		return runGenerate(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
@@ -44,10 +47,12 @@ func Main(args []string, stdout, stderr io.Writer) int {
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
   qstream-migrate analyze mysql --dsn DSN [flags]
+  qstream-migrate check --plan migration-plan/plan.yaml [flags]
   qstream-migrate generate --plan migration-plan/plan.yaml --out configuration [flags]
 
 Commands:
   analyze mysql   Inspect a MySQL schema and produce an editable migration plan.
+  check           Validate that a migration plan is ready to generate or load.
   generate        Generate QuantaStream schema YAML from an editable plan.
 
 Run "qstream-migrate <command> --help" for command flags.`)
@@ -166,6 +171,57 @@ func runAnalyzeMySQL(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runCheck(args []string, stdout, stderr io.Writer) int {
+	var (
+		planPath         string
+		relationshipMode string
+		strict           bool
+	)
+
+	fs := flag.NewFlagSet("qstream-migrate check", flag.ContinueOnError)
+	if hasHelpFlag(args) {
+		fs.SetOutput(stdout)
+	} else {
+		fs.SetOutput(stderr)
+	}
+	fs.StringVar(&planPath, "plan", "", "Path to qstream-migrate plan.yaml")
+	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode to validate: metadata, all, or none")
+	fs.BoolVar(&strict, "strict", false, "Fail when warnings are present")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if planPath == "" {
+		fmt.Fprintln(stderr, "--plan is required")
+		return 2
+	}
+	if !isRelationshipMode(relationshipMode) {
+		fmt.Fprintf(stderr, "unsupported relationship mode %q; use metadata, all, or none\n", relationshipMode)
+		return 2
+	}
+
+	plan, err := readPlan(planPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	result := checkpkg.CheckPlan(plan, checkpkg.Options{
+		RelationshipMode: relationshipMode,
+		Strict:           strict,
+	})
+	for _, line := range checkpkg.FormatIssues(result) {
+		fmt.Fprintln(stdout, line)
+	}
+	fmt.Fprintf(stdout, "plan_check result=%s errors=%d warnings=%d tables=%d fields=%d\n",
+		result.Status(strict), result.Errors, result.Warnings, result.Tables, result.Fields)
+	if !result.Pass(strict) {
+		return 1
+	}
+	return 0
+}
+
 func runGenerate(args []string, stdout, stderr io.Writer) int {
 	var (
 		planPath             string
@@ -200,15 +256,14 @@ func runGenerate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "--plan is required")
 		return 2
 	}
-
-	planBytes, err := os.ReadFile(planPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "read plan: %v\n", err)
-		return 1
+	if !isRelationshipMode(relationshipMode) {
+		fmt.Fprintf(stderr, "unsupported relationship mode %q; use metadata, all, or none\n", relationshipMode)
+		return 2
 	}
-	var plan model.MigrationPlan
-	if err := yaml.Unmarshal(planBytes, &plan); err != nil {
-		fmt.Fprintf(stderr, "parse plan: %v\n", err)
+
+	plan, err := readPlan(planPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
 		return 1
 	}
 
@@ -228,6 +283,27 @@ func runGenerate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "wrote %s\n", path)
 	}
 	return 0
+}
+
+func readPlan(planPath string) (model.MigrationPlan, error) {
+	planBytes, err := os.ReadFile(planPath)
+	if err != nil {
+		return model.MigrationPlan{}, fmt.Errorf("read plan: %w", err)
+	}
+	var plan model.MigrationPlan
+	if err := yaml.Unmarshal(planBytes, &plan); err != nil {
+		return model.MigrationPlan{}, fmt.Errorf("parse plan: %w", err)
+	}
+	return plan, nil
+}
+
+func isRelationshipMode(mode string) bool {
+	switch mode {
+	case "metadata", "all", "none":
+		return true
+	default:
+		return false
+	}
 }
 
 func schemaFromDSN(dsn string) string {

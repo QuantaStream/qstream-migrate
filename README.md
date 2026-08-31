@@ -31,7 +31,7 @@ A useful migration assistant should:
 
 ## Current CLI
 
-The first implemented flow is `analyze mysql` followed by `generate`.
+The first implemented flow is `analyze mysql`, `check`, and `generate`.
 
 `analyze mysql` inspects MySQL metadata, profiles the source data, and writes an
 editable migration plan:
@@ -47,6 +47,17 @@ The output directory contains:
 - `inventory.json`: raw MySQL metadata plus collected column profiles;
 - `plan.yaml`: editable QuantaStream migration recommendations;
 - `README.md`: a generated summary and next steps.
+
+Check the reviewed plan before generating schema files:
+
+```bash
+go run ./cmd/qstream-migrate check \
+  --plan ./migration-plan/plan.yaml
+```
+
+`check` reports unresolved mappings, missing primary keys, relationship-mode
+warnings, and time-partitioning candidates. Warnings do not fail the command by
+default. Use `--strict` when you want warnings to produce a non-zero exit code.
 
 Useful flags:
 
@@ -123,6 +134,9 @@ relationship candidates with no profile errors.
 Generate schemas from that smoke plan:
 
 ```bash
+go run ./cmd/qstream-migrate check \
+  --plan /tmp/qstream-migrate-tpch/plan.yaml
+
 go run ./cmd/qstream-migrate generate \
   --plan /tmp/qstream-migrate-tpch/plan.yaml \
   --out /tmp/qstream-migrate-tpch-config
