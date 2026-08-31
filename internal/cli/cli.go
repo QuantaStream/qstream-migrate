@@ -24,6 +24,7 @@ import (
 	"github.com/QuantaStream/qstream-migrate/internal/output"
 	"github.com/QuantaStream/qstream-migrate/internal/postjsonl"
 	"github.com/QuantaStream/qstream-migrate/internal/schemacmp"
+	"github.com/QuantaStream/qstream-migrate/internal/validate"
 )
 
 func Main(args []string, stdout, stderr io.Writer) int {
@@ -46,6 +47,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return runLoadPlan(args[1:], stdout, stderr)
 	case "post-jsonl":
 		return runPostJSONL(args[1:], stdout, stderr)
+	case "validate":
+		return runValidate(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return 0
@@ -65,6 +68,7 @@ func printUsage(w io.Writer) {
   qstream-migrate generate --plan migration-plan/plan.yaml --out configuration [flags]
   qstream-migrate load-plan --plan migration-plan/plan.yaml --out migration-load [flags]
   qstream-migrate post-jsonl --input exports --target http://127.0.0.1:8088/ingest/json [flags]
+  qstream-migrate validate counts --mysql-dsn DSN --qs-dsn DSN --plan migration-plan/plan.yaml [flags]
 
 Commands:
   analyze mysql   Inspect a MySQL schema and produce an editable migration plan.
@@ -74,6 +78,7 @@ Commands:
   generate        Generate QuantaStream schema YAML from an editable plan.
   load-plan       Generate MySQL export and QuantaStream loader runbook files.
   post-jsonl      Post exported JSONL files to the QuantaStream loader.
+  validate counts Compare source MySQL and QuantaStream row counts.
 
 Run "qstream-migrate <command> --help" for command flags.`)
 }
@@ -561,6 +566,129 @@ func runPostJSONL(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "post_jsonl sent=%d accepted=%d failed=%d batches=%d committed=%t\n",
 		result.Sent, result.Accepted, result.Failed, result.Batches, result.Committed)
 	return 0
+}
+
+func runValidate(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "validate requires a validation type; currently supported: counts")
+		return 2
+	}
+	switch args[0] {
+	case "counts":
+		return runValidateCounts(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "unsupported validate type %q; currently supported: counts\n", args[0])
+		return 2
+	}
+}
+
+func runValidateCounts(args []string, stdout, stderr io.Writer) int {
+	var (
+		mysqlDSN     string
+		qsDSN        string
+		planPath     string
+		tableCSV     string
+		queryTimeout time.Duration
+	)
+
+	fs := flag.NewFlagSet("qstream-migrate validate counts", flag.ContinueOnError)
+	if hasHelpFlag(args) {
+		fs.SetOutput(stdout)
+	} else {
+		fs.SetOutput(stderr)
+	}
+	fs.StringVar(&mysqlDSN, "mysql-dsn", "", "Source MySQL DSN")
+	fs.StringVar(&qsDSN, "qs-dsn", "", "QuantaStream MySQL-compatible DSN")
+	fs.StringVar(&planPath, "plan", "", "Path to qstream-migrate plan.yaml")
+	fs.StringVar(&tableCSV, "tables", "", "Optional comma-separated list of tables to validate")
+	fs.DurationVar(&queryTimeout, "query-timeout", 30*time.Second, "Timeout for each count query")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if mysqlDSN == "" {
+		fmt.Fprintln(stderr, "--mysql-dsn is required")
+		return 2
+	}
+	if qsDSN == "" {
+		fmt.Fprintln(stderr, "--qs-dsn is required")
+		return 2
+	}
+	if planPath == "" {
+		fmt.Fprintln(stderr, "--plan is required")
+		return 2
+	}
+
+	plan, err := readPlan(planPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	mysqlDB, err := openAndPingMySQL(mysqlDSN)
+	if err != nil {
+		fmt.Fprintf(stderr, "connect source MySQL: %v\n", err)
+		return 1
+	}
+	defer mysqlDB.Close()
+	qsDB, err := openAndPingMySQL(qsDSN)
+	if err != nil {
+		fmt.Fprintf(stderr, "connect QuantaStream: %v\n", err)
+		return 1
+	}
+	defer qsDB.Close()
+
+	ctx := context.Background()
+	result, err := validate.CompareCounts(ctx, plan, validate.CountOptions{Tables: parseCSV(tableCSV)},
+		func(ctx context.Context, table model.TablePlan) (int64, error) {
+			return queryCount(ctx, mysqlDB, validate.SourceCountSQL(plan, table), queryTimeout)
+		},
+		func(ctx context.Context, table model.TablePlan) (int64, error) {
+			return queryCount(ctx, qsDB, validate.TargetCountSQL(table), queryTimeout)
+		},
+	)
+	if err != nil {
+		fmt.Fprintf(stderr, "validate counts: %v\n", err)
+		return 1
+	}
+	for _, line := range validate.FormatCounts(result) {
+		fmt.Fprintln(stdout, line)
+	}
+	fmt.Fprintf(stdout, "validate_counts result=%s mismatches=%d tables=%d\n",
+		result.Status(), result.Mismatches, len(result.Tables))
+	if !result.Pass() {
+		return 1
+	}
+	return 0
+}
+
+func openAndPingMySQL(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+func queryCount(ctx context.Context, db *sql.DB, query string, timeout time.Duration) (int64, error) {
+	queryCtx := ctx
+	cancel := func() {}
+	if timeout > 0 {
+		queryCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+	var count int64
+	if err := db.QueryRowContext(queryCtx, query).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func readPlan(planPath string) (model.MigrationPlan, error) {

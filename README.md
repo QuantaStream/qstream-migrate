@@ -210,6 +210,17 @@ go run ./cmd/qstream-migrate post-jsonl \
 `*.jsonl` files in lexical order. By default it sends a final commit request
 after all rows are accepted.
 
+Validate row counts between the source and QuantaStream:
+
+```bash
+go run ./cmd/qstream-migrate validate counts \
+  --mysql-dsn "$MYSQL_DSN" \
+  --qs-dsn 'qstream@tcp(127.0.0.1:4000)/quanta' \
+  --plan /tmp/qstream-migrate-tpch/plan.yaml
+```
+
+Use `--tables region,nation` for a narrow validation pass during smoke tests.
+
 Future commands are expected to build on the generated schemas and plan:
 
 ```bash
