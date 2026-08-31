@@ -104,7 +104,7 @@ func normalizeOptions(opts Options, plan model.MigrationPlan) Options {
 		opts.SourceRoot = "/data"
 	}
 	if opts.TimestampGranularity == "" {
-		opts.TimestampGranularity = "second"
+		opts.TimestampGranularity = "millisecond"
 	}
 	if opts.DefaultLexLength <= 0 {
 		opts.DefaultLexLength = plan.Settings.DefaultLexPrefixLength

@@ -67,12 +67,17 @@ func renderReadme(inv model.Inventory, plan model.MigrationPlan) string {
 	fmt.Fprintf(&b, "- fields analyzed: %d\n", countFields(plan))
 	fmt.Fprintf(&b, "- relationships and candidates: %d\n", countRelationships(plan))
 	fmt.Fprintf(&b, "- time partitioning reviews: %d\n\n", countTimeQuantumReviews(plan))
+	fmt.Fprintf(&b, "## Scope\n\n")
+	fmt.Fprintf(&b, "This analysis is a MySQL-to-QuantaStream migration plan. The generated schema is reviewable output, not a one-click replacement for human schema design. Review partitioning, relationship modeling, string mapper choices, and free-text fields before loading production data.\n\n")
 	fmt.Fprintf(&b, "## Next Steps\n\n")
 	fmt.Fprintf(&b, "1. Review `plan.yaml` and decide which tables and fields to include.\n")
 	fmt.Fprintf(&b, "2. Review any fields with `recommended_mapping_strategy: Review` or `ReviewText`.\n")
 	fmt.Fprintf(&b, "3. Confirm primary keys and relationships before generating QuantaStream schemas.\n")
 	fmt.Fprintf(&b, "4. Review `time_quantum` candidates on date/time tables and set a field when time partitioning should be emitted.\n")
-	fmt.Fprintf(&b, "5. Run `qstream-migrate generate` once the plan looks right.\n\n")
+	fmt.Fprintf(&b, "5. Run `qstream-migrate check --plan plan.yaml` until the review items are understood.\n")
+	fmt.Fprintf(&b, "6. Run `qstream-migrate generate --plan plan.yaml --out configuration` once the plan looks right.\n")
+	fmt.Fprintf(&b, "7. Optionally run `qstream-migrate compare-schema` against an existing curated QuantaStream configuration.\n")
+	fmt.Fprintf(&b, "8. Use `qstream-migrate load-plan`, `export mysql`, `post-jsonl`, and `validate counts` to move data and verify row counts.\n\n")
 	if len(inv.Tables) > 0 {
 		fmt.Fprintf(&b, "## Tables\n\n")
 		for _, table := range inv.Tables {

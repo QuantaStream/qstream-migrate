@@ -223,7 +223,7 @@ func recommendField(table model.TableInventory, column model.ColumnInventory, op
 		field.Rationale = append(field.Rationale, "MySQL fixed-scale decimal type.")
 	case isDateType(dataType):
 		field.RecommendedMappingStrategy = "TimestampBSI"
-		field.QuantaStreamType = "Date"
+		field.QuantaStreamType = "DateTime"
 		field.Rationale = append(field.Rationale, "MySQL date/time type.")
 	case isStringType(dataType):
 		applyStringRecommendation(table, column, opts, &field)

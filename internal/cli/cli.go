@@ -411,7 +411,7 @@ func runGenerate(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&outDir, "out", "configuration", "Output directory for QuantaStream schema files")
 	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode: metadata, all, or none")
 	fs.StringVar(&sourceRoot, "source-root", "/data", "JSON source path root for generated sourceName values")
-	fs.StringVar(&timestampGranularity, "timestamp-granularity", "second", "TimestampBSI granularity")
+	fs.StringVar(&timestampGranularity, "timestamp-granularity", "millisecond", "TimestampBSI granularity")
 	fs.IntVar(&defaultLexLength, "lex-prefix-length", 0, "Fallback StringLexBSI prefix length; defaults to plan settings")
 	fs.BoolVar(&overwrite, "overwrite", true, "Overwrite existing generated schema files")
 	if err := fs.Parse(args); err != nil {

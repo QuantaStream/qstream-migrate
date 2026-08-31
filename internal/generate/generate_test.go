@@ -22,7 +22,7 @@ func TestWriteSchemasUsesMetadataRelationships(t *testing.T) {
 				Fields: []model.FieldPlan{
 					{Name: "o_orderkey", SourceName: "o_orderkey", Include: true, RecommendedMappingStrategy: "IntBSI", QuantaStreamType: "Integer", ColumnID: true, SourceOrdinal: 1},
 					{Name: "o_custkey", SourceName: "o_custkey", Include: true, RecommendedMappingStrategy: "IntBSI", QuantaStreamType: "Integer", SourceOrdinal: 2},
-					{Name: "o_orderdate", SourceName: "o_orderdate", Include: true, RecommendedMappingStrategy: "TimestampBSI", QuantaStreamType: "Date", SourceOrdinal: 3},
+					{Name: "o_orderdate", SourceName: "o_orderdate", Include: true, RecommendedMappingStrategy: "TimestampBSI", QuantaStreamType: "DateTime", SourceOrdinal: 3},
 				},
 				Relationships: []model.RelationshipPlan{
 					{Kind: "foreign_key", Name: "orders_customer_fk", Columns: []string{"o_custkey"}, ParentTable: "customer", ParentColumns: []string{"c_custkey"}},
@@ -50,7 +50,7 @@ func TestWriteSchemasUsesMetadataRelationships(t *testing.T) {
 	assertContains(t, payload, "foreignKey: customer\n")
 	assertContains(t, payload, "parentToChild: true\n")
 	assertContains(t, payload, "fieldName: o_orderdate\n")
-	assertContains(t, payload, "granularity: second\n")
+	assertContains(t, payload, "granularity: millisecond\n")
 }
 
 func TestWriteSchemasEmitsReviewedTimeQuantum(t *testing.T) {
@@ -66,7 +66,7 @@ func TestWriteSchemasEmitsReviewedTimeQuantum(t *testing.T) {
 				TimeQuantum: &model.TimeQuantumPlan{Field: "o_orderdate", Type: "YMD", CandidateFields: []string{"o_orderdate"}},
 				Fields: []model.FieldPlan{
 					{Name: "o_orderkey", SourceName: "o_orderkey", Include: true, RecommendedMappingStrategy: "IntBSI", QuantaStreamType: "Integer", ColumnID: true, SourceOrdinal: 1},
-					{Name: "o_orderdate", SourceName: "o_orderdate", Include: true, RecommendedMappingStrategy: "TimestampBSI", QuantaStreamType: "Date", SourceOrdinal: 2},
+					{Name: "o_orderdate", SourceName: "o_orderdate", Include: true, RecommendedMappingStrategy: "TimestampBSI", QuantaStreamType: "DateTime", SourceOrdinal: 2},
 				},
 			},
 		},
@@ -93,7 +93,7 @@ func TestWriteSchemasSkipsUnselectedTimeQuantumReview(t *testing.T) {
 				TimeQuantum: &model.TimeQuantumPlan{Type: "YMD", CandidateFields: []string{"o_orderdate"}},
 				Fields: []model.FieldPlan{
 					{Name: "o_orderkey", SourceName: "o_orderkey", Include: true, RecommendedMappingStrategy: "IntBSI", QuantaStreamType: "Integer", ColumnID: true, SourceOrdinal: 1},
-					{Name: "o_orderdate", SourceName: "o_orderdate", Include: true, RecommendedMappingStrategy: "TimestampBSI", QuantaStreamType: "Date", SourceOrdinal: 2},
+					{Name: "o_orderdate", SourceName: "o_orderdate", Include: true, RecommendedMappingStrategy: "TimestampBSI", QuantaStreamType: "DateTime", SourceOrdinal: 2},
 				},
 			},
 		},

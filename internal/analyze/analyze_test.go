@@ -82,7 +82,7 @@ func TestBuildPlanMappingRecommendations(t *testing.T) {
 	if fields["amount"].Scale == nil || *fields["amount"].Scale != 2 {
 		t.Fatalf("amount scale = %v, want 2", fields["amount"].Scale)
 	}
-	assertMapping(t, fields["created_at"], "TimestampBSI", "Date")
+	assertMapping(t, fields["created_at"], "TimestampBSI", "DateTime")
 	if plan.Tables[0].TimeQuantum == nil {
 		t.Fatalf("orders should include a time_quantum review")
 	}

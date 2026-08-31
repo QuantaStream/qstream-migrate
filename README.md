@@ -25,14 +25,32 @@ A useful migration assistant should:
 - recommend QuantaStream field mappings;
 - generate QuantaStream schema YAML;
 - generate load commands or scripts;
-- validate migrated row counts and basic aggregate checks;
+- validate migrated row counts;
 - call out date/time tables that may need QuantaStream time partitioning;
 - leave room for a human to adjust the model before loading serious data.
 
+## Current Status
+
+The current release-candidate scope is a MySQL-to-QuantaStream migration
+assistant:
+
+```text
+analyze MySQL -> review plan -> generate QS schemas -> export JSONL -> post to loader -> validate counts
+```
+
+The generated schema is intentionally reviewable output. It is expected to be
+edited before serious production loads, especially for partitioning,
+relationship modeling, free-text search, and high-cardinality string choices.
+
+This tool does not yet analyze an existing QuantaStream database as the source
+of truth. A future QS-to-QS reshape workflow will need QuantaStream export or
+unload support so existing QS data can be rebuilt into a newly generated schema.
+
 ## Current CLI
 
-The first implemented flow is `analyze mysql`, `check`, `generate`, and
-`load-plan`.
+The implemented flow includes `analyze mysql`, `check`, `generate`,
+`compare-schema`, `load-plan`, `export mysql`, `post-jsonl`, and
+`validate counts`.
 
 `analyze mysql` inspects MySQL metadata, profiles the source data, and writes an
 editable migration plan:
@@ -126,7 +144,7 @@ the right choice depends on query and load patterns. Once reviewed, set
 `time_quantum.field` in `plan.yaml`; `generate` will then emit
 `timeQuantumType` and `timeQuantumField` in the QuantaStream schema.
 
-## Local Smoke
+## End-To-End Smoke
 
 If you have a local MySQL sample database, set the DSN in your shell and run the
 analyzer into a temporary directory:
@@ -225,21 +243,6 @@ go run ./cmd/qstream-migrate validate counts \
 
 Use `--tables region,nation` for a narrow validation pass during smoke tests.
 
-Future commands are expected to build on the generated schemas and plan:
-
-```bash
-qstream-migrate load \
-  --plan ./migration-plan/plan.yaml \
-  --target http://127.0.0.1:8088/ingest/json
-
-qstream-migrate validate \
-  --plan ./migration-plan/plan.yaml \
-  --mysql-dsn 'user:pass@tcp(127.0.0.1:3306)/dbname' \
-  --qs-dsn 'qstream@tcp(127.0.0.1:4000)/quanta'
-```
-
-The exact commands may change as the tool hardens.
-
 ## Analyzer Lite
 
 The analyzer is the heart of the project. MySQL DDL can tell us column names,
@@ -274,7 +277,8 @@ Initial rules of thumb:
 - free-text fields should be called out separately for explicit text-search
   modeling;
 - integer fields should usually map to `IntBSI`;
-- date and timestamp fields should usually map to `TimestampBSI`;
+- date and timestamp fields should usually map to QuantaStream `DateTime`
+  fields with `TimestampBSI` and millisecond granularity;
 - money and fixed-scale decimal values should usually map to `FloatScaleBSI`;
 - relationships should be generated only when source metadata or profiling can
   prove the parent/child relationship is sound enough to model.
@@ -282,6 +286,38 @@ Initial rules of thumb:
   `timeQuantumField` before loading larger data sets.
 
 These are recommendations, not magic. The generated plan should be editable.
+
+## Review Checklist
+
+Before loading meaningful data, review:
+
+- table inclusion and load order;
+- primary keys and generated relationship fields;
+- any name-based relationship candidates if using `--relationship-mode all`;
+- date/time partitioning candidates and selected `timeQuantumField`;
+- string mapping choices, especially the boundary between `StringEnum` and
+  `StringLexBSI`;
+- `StringLexBSI` prefix lengths for identifiers and lookup fields;
+- free-text fields that may need explicit QuantaStream text-search support;
+- money, decimal, and measurement fields that should remain `FloatScaleBSI`;
+- generated source field names and JSON export paths.
+
+## Known Boundaries
+
+The current tool can migrate from a MySQL source and validate the migrated row
+counts in QuantaStream. It is not yet a complete database reshaping system.
+
+Known boundaries:
+
+- QuantaStream-to-QuantaStream reshape needs a future QS export/unload command;
+- partitioning recommendations are surfaced for review but not automatically
+  chosen;
+- generated schemas are conservative and should be benchmarked against important
+  workloads before replacing hand-tuned schemas;
+- text-search modeling is intentionally explicit rather than automatic;
+- validation currently compares row counts, not full aggregate parity;
+- load orchestration is JSONL plus the QuantaStream loader, not a transactional
+  online cutover system.
 
 ## What This Project Is Not
 
