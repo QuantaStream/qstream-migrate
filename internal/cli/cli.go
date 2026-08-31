@@ -7,12 +7,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	mysql "github.com/go-sql-driver/mysql"
+	"gopkg.in/yaml.v3"
 
 	"github.com/QuantaStream/qstream-migrate/internal/analyze"
+	"github.com/QuantaStream/qstream-migrate/internal/generate"
 	"github.com/QuantaStream/qstream-migrate/internal/model"
 	"github.com/QuantaStream/qstream-migrate/internal/mysqlsource"
 	"github.com/QuantaStream/qstream-migrate/internal/output"
@@ -26,6 +29,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "analyze":
 		return runAnalyze(args[1:], stdout, stderr)
+	case "generate":
+		return runGenerate(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return 0
@@ -39,11 +44,13 @@ func Main(args []string, stdout, stderr io.Writer) int {
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
   qstream-migrate analyze mysql --dsn DSN [flags]
+  qstream-migrate generate --plan migration-plan/plan.yaml --out configuration [flags]
 
 Commands:
   analyze mysql   Inspect a MySQL schema and produce an editable migration plan.
+  generate        Generate QuantaStream schema YAML from an editable plan.
 
-Run "qstream-migrate analyze mysql --help" for command flags.`)
+Run "qstream-migrate <command> --help" for command flags.`)
 }
 
 func runAnalyze(args []string, stdout, stderr io.Writer) int {
@@ -156,6 +163,70 @@ func runAnalyzeMySQL(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "wrote %s\n", paths.Inventory)
 	fmt.Fprintf(stdout, "wrote %s\n", paths.Plan)
 	fmt.Fprintf(stdout, "wrote %s\n", paths.Readme)
+	return 0
+}
+
+func runGenerate(args []string, stdout, stderr io.Writer) int {
+	var (
+		planPath             string
+		outDir               string
+		relationshipMode     string
+		sourceRoot           string
+		timestampGranularity string
+		defaultLexLength     int
+		overwrite            bool
+	)
+
+	fs := flag.NewFlagSet("qstream-migrate generate", flag.ContinueOnError)
+	if hasHelpFlag(args) {
+		fs.SetOutput(stdout)
+	} else {
+		fs.SetOutput(stderr)
+	}
+	fs.StringVar(&planPath, "plan", "", "Path to qstream-migrate plan.yaml")
+	fs.StringVar(&outDir, "out", "configuration", "Output directory for QuantaStream schema files")
+	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode: metadata, all, or none")
+	fs.StringVar(&sourceRoot, "source-root", "/data", "JSON source path root for generated sourceName values")
+	fs.StringVar(&timestampGranularity, "timestamp-granularity", "second", "TimestampBSI granularity")
+	fs.IntVar(&defaultLexLength, "lex-prefix-length", 0, "Fallback StringLexBSI prefix length; defaults to plan settings")
+	fs.BoolVar(&overwrite, "overwrite", true, "Overwrite existing generated schema files")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if planPath == "" {
+		fmt.Fprintln(stderr, "--plan is required")
+		return 2
+	}
+
+	planBytes, err := os.ReadFile(planPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "read plan: %v\n", err)
+		return 1
+	}
+	var plan model.MigrationPlan
+	if err := yaml.Unmarshal(planBytes, &plan); err != nil {
+		fmt.Fprintf(stderr, "parse plan: %v\n", err)
+		return 1
+	}
+
+	result, err := generate.WriteSchemas(plan, generate.Options{
+		OutDir:               outDir,
+		RelationshipMode:     relationshipMode,
+		SourceRoot:           sourceRoot,
+		TimestampGranularity: timestampGranularity,
+		DefaultLexLength:     defaultLexLength,
+		Overwrite:            overwrite,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "generate schemas: %v\n", err)
+		return 1
+	}
+	for _, path := range result.Files {
+		fmt.Fprintf(stdout, "wrote %s\n", path)
+	}
 	return 0
 }
 

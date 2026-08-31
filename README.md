@@ -30,8 +30,10 @@ A useful migration assistant should:
 
 ## Current CLI
 
-The first implemented command is `analyze mysql`. It inspects MySQL metadata,
-profiles the source data, and writes an editable migration plan:
+The first implemented flow is `analyze mysql` followed by `generate`.
+
+`analyze mysql` inspects MySQL metadata, profiles the source data, and writes an
+editable migration plan:
 
 ```bash
 go run ./cmd/qstream-migrate analyze mysql \
@@ -64,6 +66,34 @@ To build a local binary:
 go build -o bin/qstream-migrate ./cmd/qstream-migrate
 ```
 
+`generate` turns the reviewed plan into QuantaStream schema YAML:
+
+```bash
+go run ./cmd/qstream-migrate generate \
+  --plan ./migration-plan/plan.yaml \
+  --out ./configuration
+```
+
+Generated schemas are written as:
+
+```text
+configuration/<table>/schema.yaml
+```
+
+Relationship generation is intentionally conservative. By default,
+`--relationship-mode metadata` only emits `ParentRelation` fields for
+relationships backed by declared MySQL foreign-key metadata. If the analyzer
+found name-based relationship candidates and you have reviewed them, opt in:
+
+```bash
+go run ./cmd/qstream-migrate generate \
+  --plan ./migration-plan/plan.yaml \
+  --out ./configuration \
+  --relationship-mode all
+```
+
+Use `--relationship-mode none` to generate flat table schemas.
+
 ## Local Smoke
 
 If you have a local MySQL sample database, set the DSN in your shell and run the
@@ -82,13 +112,17 @@ go run ./cmd/qstream-migrate analyze mysql \
 The first local TPC-H smoke run analyzed 8 tables, 61 fields, and produced 9
 relationship candidates with no profile errors.
 
-Future commands are expected to build on the generated plan:
+Generate schemas from that smoke plan:
 
 ```bash
-qstream-migrate generate \
-  --plan ./migration-plan/plan.yaml \
-  --out ./quantastream-schemas
+go run ./cmd/qstream-migrate generate \
+  --plan /tmp/qstream-migrate-tpch/plan.yaml \
+  --out /tmp/qstream-migrate-tpch-config
+```
 
+Future commands are expected to build on the generated schemas and plan:
+
+```bash
 qstream-migrate load \
   --plan ./migration-plan/plan.yaml \
   --target http://127.0.0.1:8088/ingest/json
