@@ -25,7 +25,7 @@ type Result struct {
 
 func Write(plan model.MigrationPlan, opts Options) (Result, error) {
 	opts = normalizeOptions(opts)
-	order, err := loadOrder(plan, opts.RelationshipMode)
+	order, err := LoadOrder(plan, opts.RelationshipMode)
 	if err != nil {
 		return Result{}, err
 	}
@@ -77,7 +77,7 @@ func normalizeOptions(opts Options) Options {
 	return opts
 }
 
-func loadOrder(plan model.MigrationPlan, relationshipMode string) ([]string, error) {
+func LoadOrder(plan model.MigrationPlan, relationshipMode string) ([]string, error) {
 	tables := includedTablesByName(plan)
 	if len(tables) == 0 {
 		return nil, fmt.Errorf("plan has no included tables")

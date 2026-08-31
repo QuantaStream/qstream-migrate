@@ -16,6 +16,7 @@ import (
 
 	"github.com/QuantaStream/qstream-migrate/internal/analyze"
 	checkpkg "github.com/QuantaStream/qstream-migrate/internal/check"
+	"github.com/QuantaStream/qstream-migrate/internal/exportjsonl"
 	"github.com/QuantaStream/qstream-migrate/internal/generate"
 	"github.com/QuantaStream/qstream-migrate/internal/loadplan"
 	"github.com/QuantaStream/qstream-migrate/internal/model"
@@ -36,6 +37,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return runCheck(args[1:], stdout, stderr)
 	case "compare-schema":
 		return runCompareSchema(args[1:], stdout, stderr)
+	case "export":
+		return runExport(args[1:], stdout, stderr)
 	case "generate":
 		return runGenerate(args[1:], stdout, stderr)
 	case "load-plan":
@@ -55,6 +58,7 @@ func printUsage(w io.Writer) {
   qstream-migrate analyze mysql --dsn DSN [flags]
   qstream-migrate check --plan migration-plan/plan.yaml [flags]
   qstream-migrate compare-schema --generated configuration --reference reference-config [flags]
+  qstream-migrate export mysql --dsn DSN --plan migration-plan/plan.yaml --out exports [flags]
   qstream-migrate generate --plan migration-plan/plan.yaml --out configuration [flags]
   qstream-migrate load-plan --plan migration-plan/plan.yaml --out migration-load [flags]
 
@@ -62,6 +66,7 @@ Commands:
   analyze mysql   Inspect a MySQL schema and produce an editable migration plan.
   check           Validate that a migration plan is ready to generate or load.
   compare-schema  Compare generated QuantaStream schemas against a reference config.
+  export mysql    Export MySQL rows as QuantaStream JSONL events.
   generate        Generate QuantaStream schema YAML from an editable plan.
   load-plan       Generate MySQL export and QuantaStream loader runbook files.
 
@@ -276,6 +281,102 @@ func runCompareSchema(args []string, stdout, stderr io.Writer) int {
 	if strict && !result.Match() {
 		return 1
 	}
+	return 0
+}
+
+func runExport(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "export requires a source type; currently supported: mysql")
+		return 2
+	}
+	switch args[0] {
+	case "mysql":
+		return runExportMySQL(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "unsupported export source %q; currently supported: mysql\n", args[0])
+		return 2
+	}
+}
+
+func runExportMySQL(args []string, stdout, stderr io.Writer) int {
+	var (
+		dsn              string
+		planPath         string
+		outDir           string
+		tableCSV         string
+		relationshipMode string
+		queryTimeout     time.Duration
+		overwrite        bool
+	)
+
+	fs := flag.NewFlagSet("qstream-migrate export mysql", flag.ContinueOnError)
+	if hasHelpFlag(args) {
+		fs.SetOutput(stdout)
+	} else {
+		fs.SetOutput(stderr)
+	}
+	fs.StringVar(&dsn, "dsn", "", "MySQL DSN, for example user:pass@tcp(127.0.0.1:3306)/dbname")
+	fs.StringVar(&planPath, "plan", "", "Path to qstream-migrate plan.yaml")
+	fs.StringVar(&outDir, "out", "exports", "Output directory for JSONL files")
+	fs.StringVar(&tableCSV, "tables", "", "Optional comma-separated list of tables to export")
+	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode to use for export ordering: metadata, all, or none")
+	fs.DurationVar(&queryTimeout, "query-timeout", 0, "Optional timeout per table export query; 0 disables the timeout")
+	fs.BoolVar(&overwrite, "overwrite", true, "Overwrite existing JSONL export files")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if dsn == "" {
+		fmt.Fprintln(stderr, "--dsn is required")
+		return 2
+	}
+	if planPath == "" {
+		fmt.Fprintln(stderr, "--plan is required")
+		return 2
+	}
+	if !isRelationshipMode(relationshipMode) {
+		fmt.Fprintf(stderr, "unsupported relationship mode %q; use metadata, all, or none\n", relationshipMode)
+		return 2
+	}
+
+	plan, err := readPlan(planPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		fmt.Fprintf(stderr, "open MySQL connection: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	err = db.PingContext(pingCtx)
+	cancel()
+	if err != nil {
+		fmt.Fprintf(stderr, "connect to MySQL: %v\n", err)
+		return 1
+	}
+
+	result, err := exportjsonl.ExportMySQL(ctx, db, plan, exportjsonl.Options{
+		OutDir:           outDir,
+		RelationshipMode: relationshipMode,
+		Tables:           parseCSV(tableCSV),
+		QueryTimeout:     queryTimeout,
+		Overwrite:        overwrite,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "export mysql: %v\n", err)
+		return 1
+	}
+	for _, table := range result.Tables {
+		fmt.Fprintf(stdout, "exported table=%s rows=%d path=%s\n", table.Table, table.Rows, table.Path)
+	}
+	fmt.Fprintf(stdout, "export_mysql tables=%d out=%s\n", len(result.Tables), outDir)
 	return 0
 }
 

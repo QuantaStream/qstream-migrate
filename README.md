@@ -175,6 +175,28 @@ The load plan contains:
 - `scripts/export-jsonl.sh`: exports each table to JSONL using the MySQL CLI;
 - `scripts/post-jsonl.sh`: batches JSONL into the QuantaStream loader.
 
+You can also export JSONL directly with Go instead of using the generated MySQL
+CLI script:
+
+```bash
+go run ./cmd/qstream-migrate export mysql \
+  --dsn "$MYSQL_DSN" \
+  --plan /tmp/qstream-migrate-tpch/plan.yaml \
+  --out /tmp/qstream-migrate-tpch-exports \
+  --relationship-mode all
+```
+
+For a quick smoke against one or two tables:
+
+```bash
+go run ./cmd/qstream-migrate export mysql \
+  --dsn "$MYSQL_DSN" \
+  --plan /tmp/qstream-migrate-tpch/plan.yaml \
+  --out /tmp/qstream-migrate-tpch-exports \
+  --relationship-mode none \
+  --tables region,nation
+```
+
 Future commands are expected to build on the generated schemas and plan:
 
 ```bash
