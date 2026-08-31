@@ -47,10 +47,41 @@ func TestWriteSchemasUsesMetadataRelationships(t *testing.T) {
 	assertContains(t, payload, "columnID: true\n")
 	assertContains(t, payload, "fieldName: o_custkey\n")
 	assertContains(t, payload, "mappingStrategy: ParentRelation\n")
-	assertContains(t, payload, "foreignKey: customer\n")
+	assertContains(t, payload, "foreignKey: customer.c_custkey\n")
 	assertContains(t, payload, "parentToChild: true\n")
 	assertContains(t, payload, "fieldName: o_orderdate\n")
 	assertContains(t, payload, "granularity: millisecond\n")
+}
+
+func TestWriteSchemasEmitsParentColumnForStringNaturalKeyRelationships(t *testing.T) {
+	dir := t.TempDir()
+	maxLen := int64(7)
+	plan := model.MigrationPlan{
+		Settings: model.AnalyzerSettings{DefaultLexPrefixLength: 16},
+		Tables: []model.TablePlan{
+			{
+				Name:       "orders",
+				SourceName: "orders",
+				Include:    true,
+				PrimaryKey: []string{"order_id"},
+				Fields: []model.FieldPlan{
+					{Name: "order_id", SourceName: "order_id", Include: true, RecommendedMappingStrategy: "StringLexBSI", QuantaStreamType: "String", MaxLen: &maxLen, LexPrefixLength: intPtr(8), SourceOrdinal: 1},
+					{Name: "region", SourceName: "region", Include: true, RecommendedMappingStrategy: "StringLexBSI", QuantaStreamType: "String", MaxLen: &maxLen, LexPrefixLength: intPtr(8), SourceOrdinal: 2},
+				},
+				Relationships: []model.RelationshipPlan{
+					{Kind: "foreign_key", Name: "orders_people_fk", Columns: []string{"region"}, ParentTable: "people", ParentColumns: []string{"region"}},
+				},
+			},
+		},
+	}
+
+	if _, err := WriteSchemas(plan, Options{OutDir: dir, RelationshipMode: "metadata", Overwrite: true}); err != nil {
+		t.Fatalf("WriteSchemas returned error: %v", err)
+	}
+	payload := readFile(t, filepath.Join(dir, "orders", "schema.yaml"))
+	assertContains(t, payload, "fieldName: region\n")
+	assertContains(t, payload, "mappingStrategy: ParentRelation\n")
+	assertContains(t, payload, "foreignKey: people.region\n")
 }
 
 func TestWriteSchemasEmitsReviewedTimeQuantum(t *testing.T) {
@@ -138,7 +169,7 @@ func TestWriteSchemasCanIncludeCandidateRelationships(t *testing.T) {
 	payload := readFile(t, filepath.Join(dir, "orders", "schema.yaml"))
 	assertContains(t, payload, "fieldName: o_clerk\n")
 	assertContains(t, payload, "mappingStrategy: ParentRelation\n")
-	assertContains(t, payload, "foreignKey: clerks\n")
+	assertContains(t, payload, "foreignKey: clerks.clerk_id\n")
 }
 
 func TestWriteSchemasRejectsReviewMappings(t *testing.T) {
@@ -162,6 +193,10 @@ func TestWriteSchemasRejectsReviewMappings(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "requires plan review") {
 		t.Fatalf("expected review mapping error, got %v", err)
 	}
+}
+
+func intPtr(value int) *int {
+	return &value
 }
 
 func oneStringTablePlan(tableName, pk, stringField string) model.MigrationPlan {

@@ -16,14 +16,15 @@ import (
 )
 
 type Options struct {
-	InputDir        string
-	TargetURL       string
-	BatchSize       int
-	CommitURL       string
-	LoaderStatsURL  string
-	SkipLoaderCheck bool
-	Commit          bool
-	HTTPClient      *http.Client
+	InputDir            string
+	TargetURL           string
+	BatchSize           int
+	CommitURL           string
+	LoaderStatsURL      string
+	SkipLoaderCheck     bool
+	Commit              bool
+	CommitAfterEachFile bool
+	HTTPClient          *http.Client
 }
 
 type TableResult struct {
@@ -36,12 +37,13 @@ type TableResult struct {
 }
 
 type Result struct {
-	Tables    []TableResult
-	Sent      int64
-	Accepted  int64
-	Failed    int64
-	Batches   int64
-	Committed bool
+	Tables      []TableResult
+	Sent        int64
+	Accepted    int64
+	Failed      int64
+	Batches     int64
+	Committed   bool
+	CommitCalls int64
 }
 
 type ingestResponse struct {
@@ -76,12 +78,20 @@ func PostDir(ctx context.Context, opts Options) (Result, error) {
 		result.Accepted += tableResult.Accepted
 		result.Failed += tableResult.Failed
 		result.Batches += tableResult.Batches
+		if opts.Commit && opts.CommitAfterEachFile {
+			if err := postCommit(ctx, opts); err != nil {
+				return Result{}, fmt.Errorf("commit after table %s: %w", table, err)
+			}
+			result.Committed = true
+			result.CommitCalls++
+		}
 	}
-	if opts.Commit {
+	if opts.Commit && !opts.CommitAfterEachFile {
 		if err := postCommit(ctx, opts); err != nil {
 			return Result{}, err
 		}
 		result.Committed = true
+		result.CommitCalls++
 	}
 	return result, nil
 }

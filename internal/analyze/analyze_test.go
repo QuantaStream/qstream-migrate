@@ -94,6 +94,42 @@ func TestBuildPlanMappingRecommendations(t *testing.T) {
 	}
 }
 
+func TestBuildPlanDoesNotMarkStringPrimaryKeyAsColumnID(t *testing.T) {
+	distinct4 := int64(4)
+	maxRegionLen := int64(7)
+	inv := model.Inventory{
+		Source: model.SourceInfo{Kind: "mysql", Schema: "sales"},
+		Tables: []model.TableInventory{
+			{
+				Name:       "people",
+				PrimaryKey: []string{"region"},
+				Columns: []model.ColumnInventory{
+					{
+						Name:       "region",
+						Ordinal:    1,
+						DataType:   "varchar",
+						ColumnType: "varchar(7)",
+						Profile: &model.ColumnProfile{
+							RowCount:        4,
+							DistinctCount:   &distinct4,
+							MaxStringLength: &maxRegionLen,
+						},
+					},
+					{Name: "person", Ordinal: 2, DataType: "varchar", ColumnType: "varchar(64)"},
+				},
+			},
+		},
+	}
+
+	plan := BuildPlan(inv, Options{StringEnumMaxDistinct: 2, DefaultLexPrefixLength: 16})
+	fields := fieldsByName(plan.Tables[0])
+
+	assertMapping(t, fields["region"], "StringLexBSI", "String")
+	if fields["region"].ColumnID {
+		t.Fatalf("string primary key should not be marked as column_id")
+	}
+}
+
 func TestBuildPlanOmitsTimeQuantumReviewWithoutDateColumns(t *testing.T) {
 	inv := model.Inventory{
 		Source: model.SourceInfo{Kind: "mysql", Schema: "sales"},

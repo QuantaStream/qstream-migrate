@@ -210,7 +210,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		fs.SetOutput(stderr)
 	}
 	fs.StringVar(&planPath, "plan", "", "Path to qstream-migrate plan.yaml")
-	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode to validate: metadata, all, or none")
+	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode to validate: none, metadata, or all")
 	fs.BoolVar(&strict, "strict", false, "Fail when warnings are present")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -329,7 +329,7 @@ func runExportMySQL(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&planPath, "plan", "", "Path to qstream-migrate plan.yaml")
 	fs.StringVar(&outDir, "out", "exports", "Output directory for JSONL files")
 	fs.StringVar(&tableCSV, "tables", "", "Optional comma-separated list of tables to export")
-	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode to use for export ordering: metadata, all, or none")
+	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode to use for export ordering: none, metadata, or all")
 	fs.DurationVar(&queryTimeout, "query-timeout", 0, "Optional timeout per table export query; 0 disables the timeout")
 	fs.BoolVar(&overwrite, "overwrite", true, "Overwrite existing JSONL export files")
 	if err := fs.Parse(args); err != nil {
@@ -409,7 +409,7 @@ func runGenerate(args []string, stdout, stderr io.Writer) int {
 	}
 	fs.StringVar(&planPath, "plan", "", "Path to qstream-migrate plan.yaml")
 	fs.StringVar(&outDir, "out", "configuration", "Output directory for QuantaStream schema files")
-	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode: metadata, all, or none")
+	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode: none, metadata, or all")
 	fs.StringVar(&sourceRoot, "source-root", "/data", "JSON source path root for generated sourceName values")
 	fs.StringVar(&timestampGranularity, "timestamp-granularity", "millisecond", "TimestampBSI granularity")
 	fs.IntVar(&defaultLexLength, "lex-prefix-length", 0, "Fallback StringLexBSI prefix length; defaults to plan settings")
@@ -471,7 +471,7 @@ func runLoadPlan(args []string, stdout, stderr io.Writer) int {
 	}
 	fs.StringVar(&planPath, "plan", "", "Path to qstream-migrate plan.yaml")
 	fs.StringVar(&outDir, "out", "migration-load", "Output directory for load runbook files")
-	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode to use for parent-before-child ordering: metadata, all, or none")
+	fs.StringVar(&relationshipMode, "relationship-mode", "metadata", "Relationship generation mode to use for parent-before-child ordering: none, metadata, or all")
 	fs.StringVar(&loaderTarget, "loader-target", "http://127.0.0.1:8088/ingest/json", "QuantaStream loader JSON ingest URL")
 	fs.IntVar(&batchSize, "batch-size", 2000, "Rows per JSON ingest request in the generated posting script")
 	fs.BoolVar(&overwrite, "overwrite", true, "Overwrite existing generated load-plan files")
@@ -522,6 +522,7 @@ func runPostJSONL(args []string, stdout, stderr io.Writer) int {
 		loaderStatsURL  string
 		skipLoaderCheck bool
 		commit          bool
+		commitEachFile  bool
 	)
 
 	fs := flag.NewFlagSet("qstream-migrate post-jsonl", flag.ContinueOnError)
@@ -536,7 +537,8 @@ func runPostJSONL(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&commitURL, "commit-url", "", "Optional QuantaStream loader commit URL; derived from --target when possible")
 	fs.StringVar(&loaderStatsURL, "loader-stats-url", "", "Optional QuantaStream loader stats URL used to verify mounted tables; derived from --target when possible")
 	fs.BoolVar(&skipLoaderCheck, "skip-loader-check", false, "Skip loader mounted-table preflight check")
-	fs.BoolVar(&commit, "commit", true, "POST to the loader commit endpoint after all rows are accepted")
+	fs.BoolVar(&commit, "commit", true, "POST to the loader commit endpoint")
+	fs.BoolVar(&commitEachFile, "commit-after-each-file", true, "POST a loader commit after each JSONL file; keeps parent tables visible before child tables")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -553,13 +555,14 @@ func runPostJSONL(args []string, stdout, stderr io.Writer) int {
 	}
 
 	result, err := postjsonl.PostDir(context.Background(), postjsonl.Options{
-		InputDir:        inputDir,
-		TargetURL:       targetURL,
-		BatchSize:       batchSize,
-		CommitURL:       commitURL,
-		LoaderStatsURL:  loaderStatsURL,
-		SkipLoaderCheck: skipLoaderCheck,
-		Commit:          commit,
+		InputDir:            inputDir,
+		TargetURL:           targetURL,
+		BatchSize:           batchSize,
+		CommitURL:           commitURL,
+		LoaderStatsURL:      loaderStatsURL,
+		SkipLoaderCheck:     skipLoaderCheck,
+		Commit:              commit,
+		CommitAfterEachFile: commitEachFile,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "post jsonl: %v\n", err)
@@ -569,8 +572,8 @@ func runPostJSONL(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "posted table=%s sent=%d accepted=%d failed=%d batches=%d path=%s\n",
 			table.Table, table.Sent, table.Accepted, table.Failed, table.Batches, table.Path)
 	}
-	fmt.Fprintf(stdout, "post_jsonl sent=%d accepted=%d failed=%d batches=%d committed=%t\n",
-		result.Sent, result.Accepted, result.Failed, result.Batches, result.Committed)
+	fmt.Fprintf(stdout, "post_jsonl sent=%d accepted=%d failed=%d batches=%d committed=%t commit_calls=%d\n",
+		result.Sent, result.Accepted, result.Failed, result.Batches, result.Committed, result.CommitCalls)
 	return 0
 }
 

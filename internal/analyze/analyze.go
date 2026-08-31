@@ -233,11 +233,17 @@ func recommendField(table model.TableInventory, column model.ColumnInventory, op
 		field.Warnings = append(field.Warnings, "No default QuantaStream mapping rule for MySQL type "+column.ColumnType+".")
 	}
 
-	if isSingleColumnPrimaryKey(table, column.Name) {
+	if isSingleColumnPrimaryKey(table, column.Name) && isDirectColumnIDCandidate(field) {
 		field.ColumnID = true
-		field.Rationale = append(field.Rationale, "Single-column primary key.")
+		field.Rationale = append(field.Rationale, "Single-column integer primary key can map directly to QuantaStream row IDs.")
+	} else if isSingleColumnPrimaryKey(table, column.Name) {
+		field.Rationale = append(field.Rationale, "Single-column primary key uses value lookup; non-integer keys are not direct QuantaStream row IDs.")
 	}
 	return field
+}
+
+func isDirectColumnIDCandidate(field model.FieldPlan) bool {
+	return field.QuantaStreamType == "Integer" && field.RecommendedMappingStrategy == "IntBSI"
 }
 
 func applyStringRecommendation(table model.TableInventory, column model.ColumnInventory, opts Options, field *model.FieldPlan) {

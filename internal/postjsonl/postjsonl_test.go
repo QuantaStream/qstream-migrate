@@ -45,25 +45,69 @@ func TestPostDirPostsInLoadOrderAndCommits(t *testing.T) {
 	defer server.Close()
 
 	result, err := PostDir(context.Background(), Options{
-		InputDir:  dir,
-		TargetURL: server.URL + "/ingest/json",
-		BatchSize: 2,
-		Commit:    true,
+		InputDir:            dir,
+		TargetURL:           server.URL + "/ingest/json",
+		BatchSize:           2,
+		Commit:              true,
+		CommitAfterEachFile: true,
 	})
 	if err != nil {
 		t.Fatalf("PostDir returned error: %v", err)
 	}
-	if result.Sent != 3 || result.Accepted != 3 || result.Failed != 0 || result.Batches != 2 || !result.Committed {
-		t.Fatalf("result = %+v, want three accepted rows over two batches and commit", result)
+	if result.Sent != 3 || result.Accepted != 3 || result.Failed != 0 || result.Batches != 2 || !result.Committed || result.CommitCalls != 2 {
+		t.Fatalf("result = %+v, want three accepted rows over two batches and two commits", result)
 	}
 	if got, want := fmt.Sprint(batches), "[1 2]"; got != want {
 		t.Fatalf("batches = %s, want %s", got, want)
 	}
-	if commitCalls != 1 {
-		t.Fatalf("commit calls = %d, want 1", commitCalls)
+	if commitCalls != 2 {
+		t.Fatalf("commit calls = %d, want 2", commitCalls)
 	}
 	if statsCalls != 1 {
 		t.Fatalf("stats calls = %d, want 1", statsCalls)
+	}
+}
+
+func TestPostDirCanCommitOnceAtEnd(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "load-order.txt"), "region\nnation\n")
+	writeFile(t, filepath.Join(dir, "region.jsonl"), `{"type":"region","data":{"r_regionkey":1}}`+"\n")
+	writeFile(t, filepath.Join(dir, "nation.jsonl"), `{"type":"nation","data":{"n_nationkey":1}}`+"\n")
+
+	var commitCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/stats":
+			_, _ = w.Write([]byte(`{"status":"ok","tables":["region","nation"]}`))
+		case "/ingest/json":
+			var body struct {
+				Records []json.RawMessage `json:"records"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			_, _ = fmt.Fprintf(w, `{"accepted":%d,"failed":0}`, len(body.Records))
+		case "/commit":
+			commitCalls++
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	result, err := PostDir(context.Background(), Options{
+		InputDir:            dir,
+		TargetURL:           server.URL + "/ingest/json",
+		BatchSize:           1,
+		Commit:              true,
+		CommitAfterEachFile: false,
+	})
+	if err != nil {
+		t.Fatalf("PostDir returned error: %v", err)
+	}
+	if !result.Committed || result.CommitCalls != 1 || commitCalls != 1 {
+		t.Fatalf("result = %+v commitCalls = %d, want one final commit", result, commitCalls)
 	}
 }
 

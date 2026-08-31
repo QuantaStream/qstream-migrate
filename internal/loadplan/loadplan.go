@@ -294,7 +294,7 @@ func renderReadme(plan model.MigrationPlan, opts Options, order []string) string
 	fmt.Fprintf(&b, "export BATCH_SIZE=%d\n", opts.BatchSize)
 	fmt.Fprintf(&b, "./scripts/post-jsonl.sh\n")
 	fmt.Fprintf(&b, "```\n\n")
-	fmt.Fprintf(&b, "The posting script sends a final commit request when `QS_LOADER_COMMIT_URL` is set. If omitted, it derives `http://host:port/commit` from `QS_LOADER_TARGET` when the target ends in `/ingest/json`.\n")
+	fmt.Fprintf(&b, "The posting script derives `http://host:port/commit` from `QS_LOADER_TARGET` when the target ends in `/ingest/json`. By default it commits after each JSONL file so parent tables are visible before child tables. Set `QS_LOADER_COMMIT_AFTER_EACH_FILE=0` to post all files first and commit once at the end.\n")
 	return b.String()
 }
 
@@ -339,6 +339,7 @@ EXPORT_DIR="${1:-"$ROOT_DIR/exports"}"
 QS_LOADER_TARGET="${QS_LOADER_TARGET:-%s}"
 BATCH_SIZE="${BATCH_SIZE:-%d}"
 QS_LOADER_CHECK_TABLES="${QS_LOADER_CHECK_TABLES:-1}"
+QS_LOADER_COMMIT_AFTER_EACH_FILE="${QS_LOADER_COMMIT_AFTER_EACH_FILE:-1}"
 
 if [ -z "${QS_LOADER_COMMIT_URL:-}" ]; then
   if [[ "$QS_LOADER_TARGET" == */ingest/json ]]; then
@@ -448,9 +449,14 @@ with open(path, "r", encoding="utf-8") as handle:
     sent += len(records)
 print(f"sent={sent}")
 PY
+  if [ "$QS_LOADER_COMMIT_AFTER_EACH_FILE" != "0" ] && [ -n "${QS_LOADER_COMMIT_URL:-}" ]; then
+    echo "committing loader after $table"
+    curl -fsS -X POST "$QS_LOADER_COMMIT_URL" >/dev/null
+    echo
+  fi
 done < "$ROOT_DIR/load-order.txt"
 
-if [ -n "${QS_LOADER_COMMIT_URL:-}" ]; then
+if [ "$QS_LOADER_COMMIT_AFTER_EACH_FILE" = "0" ] && [ -n "${QS_LOADER_COMMIT_URL:-}" ]; then
   echo "committing loader"
   curl -fsS -X POST "$QS_LOADER_COMMIT_URL" >/dev/null
   echo

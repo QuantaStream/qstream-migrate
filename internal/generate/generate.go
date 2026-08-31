@@ -239,7 +239,7 @@ func buildAttribute(field model.FieldPlan, relationship model.RelationshipPlan, 
 
 	if relationship.Name != "" {
 		attr.MappingStrategy = "ParentRelation"
-		attr.ForeignKey = relationship.ParentTable
+		attr.ForeignKey = relationshipForeignKeySpec(relationship)
 		attr.RelationshipArtifacts = &qstreamRelationshipArtifacts{ParentToChild: true}
 		return attr, nil
 	}
@@ -263,6 +263,18 @@ func buildAttribute(field model.FieldPlan, relationship model.RelationshipPlan, 
 	default:
 		return qstreamAttribute{}, fmt.Errorf("unsupported mapping strategy %q", mapping)
 	}
+}
+
+func relationshipForeignKeySpec(relationship model.RelationshipPlan) string {
+	parentTable := strings.TrimSpace(relationship.ParentTable)
+	if len(relationship.ParentColumns) != 1 {
+		return parentTable
+	}
+	parentColumn := strings.TrimSpace(relationship.ParentColumns[0])
+	if parentTable == "" || parentColumn == "" {
+		return parentTable
+	}
+	return parentTable + "." + parentColumn
 }
 
 func sourcePath(root, sourceName string) string {
