@@ -38,6 +38,22 @@ assistant:
 analyze MySQL -> review plan -> generate QS schemas -> export JSONL -> post to loader -> validate counts
 ```
 
+JSONL (JSON Lines) is the migration staging format: each line contains one
+complete JSON object representing one source row. It is a streaming interchange
+format used by this tool, not a native MySQL backup or unload format.
+
+Migration exports are intentionally flat and table-oriented. Each source table
+is written to its own JSONL file, then files are posted in parent-before-child
+order with commits between relationship levels. This preserves relational table
+boundaries and makes large migrations easier to stream, inspect, resume,
+parallelize, and validate without buffering every child row under its parent.
+
+Do not convert migration exports into nested parent/child documents merely
+because the QuantaStream loader supports nested events. Nested ingestion is the
+better shape when a live source naturally emits one complete business event,
+such as an order with its lineitems. Batch migration should preserve source
+table boundaries and use the generated load order.
+
 The generated schema is intentionally reviewable output. It is expected to be
 edited before serious production loads, especially for partitioning,
 relationship modeling, free-text search, and high-cardinality string choices.
