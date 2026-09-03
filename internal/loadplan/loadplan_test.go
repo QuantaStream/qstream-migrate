@@ -76,6 +76,41 @@ func TestWriteErrorsOnRelationshipCycle(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "relationship cycle") {
 		t.Fatalf("expected cycle error, got %v", err)
 	}
+	if !strings.Contains(err.Error(), "exclude: true") {
+		t.Fatalf("cycle error should explain the reviewed escape hatch, got %v", err)
+	}
+}
+
+func TestWriteAllowsReviewedRelationshipToBreakCycle(t *testing.T) {
+	dir := t.TempDir()
+	plan := testPlan()
+	plan.Tables[0].Relationships = []model.RelationshipPlan{
+		{Kind: "candidate_foreign_key", Name: "candidate_customers_orders", Exclude: true, Columns: []string{"customer_id"}, ParentTable: "orders", ParentColumns: []string{"order_id"}},
+	}
+
+	result, err := Write(plan, Options{OutDir: dir, RelationshipMode: "all"})
+	if err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+	if got, want := strings.Join(result.LoadOrder, ","), "customers,orders"; got != want {
+		t.Fatalf("load order = %s, want %s", got, want)
+	}
+}
+
+func TestWriteDeduplicatesMultipleRelationshipsToSameParent(t *testing.T) {
+	dir := t.TempDir()
+	plan := testPlan()
+	plan.Tables[1].Relationships = append(plan.Tables[1].Relationships,
+		model.RelationshipPlan{Kind: "candidate_foreign_key", Name: "candidate_orders_customers_secondary", Columns: []string{"customer_id"}, ParentTable: "customers", ParentColumns: []string{"customer_id"}},
+	)
+
+	result, err := Write(plan, Options{OutDir: dir, RelationshipMode: "all"})
+	if err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+	if got, want := strings.Join(result.LoadOrder, ","), "customers,orders"; got != want {
+		t.Fatalf("load order = %s, want %s", got, want)
+	}
 }
 
 func TestExportSQLQuotesIdentifiersAndStrings(t *testing.T) {

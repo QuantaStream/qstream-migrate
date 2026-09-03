@@ -158,6 +158,12 @@ go run ./cmd/qstream-migrate generate \
 Use `--relationship-mode none` when you want flat table schemas that preserve
 source foreign-key columns as plain values.
 
+For a reviewed mutual foreign-key cycle, set `exclude: true` on one relationship
+in `plan.yaml`. The affected column and its data are preserved as an ordinary
+field, while the remaining foreign keys are generated as relationship vectors.
+This is an explicit modeling decision: QuantaStream cannot yet add the deferred
+foreign key and build its relationship vector after loading populated tables.
+
 Relationship mode changes the physical QuantaStream model. A generated
 `ParentRelation` field stores a relationship vector to the parent row rather
 than a plain source value. Query parent labels through joins, or stay in flat

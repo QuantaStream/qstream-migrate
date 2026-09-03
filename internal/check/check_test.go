@@ -81,6 +81,16 @@ func TestCheckPlanWarnsForCandidateRelationshipsByMode(t *testing.T) {
 	assertIssue(t, allResult, "candidate_relationship_enabled")
 }
 
+func TestCheckPlanWarnsForExcludedRelationship(t *testing.T) {
+	plan := readyPlan()
+	plan.Tables[0].Relationships = []model.RelationshipPlan{{
+		Name: "fk_orders_customers", Kind: "foreign_key", Exclude: true,
+	}}
+
+	result := CheckPlan(plan, Options{RelationshipMode: "metadata"})
+	assertIssue(t, result, "relationship_excluded")
+}
+
 func TestFormatIssuesIncludesContext(t *testing.T) {
 	result := Result{}
 	result.add(Issue{

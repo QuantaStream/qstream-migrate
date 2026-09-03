@@ -140,6 +140,7 @@ type RelationshipPlan struct {
 	Name          string   `json:"name" yaml:"name"`
 	Kind          string   `json:"kind" yaml:"kind"`
 	Confidence    string   `json:"confidence" yaml:"confidence"`
+	Exclude       bool     `json:"exclude,omitempty" yaml:"exclude,omitempty"`
 	Columns       []string `json:"columns" yaml:"columns"`
 	ParentTable   string   `json:"parent_table" yaml:"parent_table"`
 	ParentColumns []string `json:"parent_columns" yaml:"parent_columns"`

@@ -205,6 +205,9 @@ func relationshipsByColumn(table model.TablePlan, mode string) (map[string]model
 }
 
 func includeRelationship(relationship model.RelationshipPlan, mode string) bool {
+	if relationship.Exclude {
+		return false
+	}
 	switch mode {
 	case "all":
 		return relationship.Kind == "foreign_key" || relationship.Kind == "candidate_foreign_key"

@@ -53,6 +53,24 @@ func TestWriteSchemasUsesMetadataRelationships(t *testing.T) {
 	assertContains(t, payload, "granularity: millisecond\n")
 }
 
+func TestWriteSchemasPreservesExcludedRelationshipColumnAsOrdinaryField(t *testing.T) {
+	dir := t.TempDir()
+	plan := oneStringTablePlan("orders", "order_id", "customer_id")
+	plan.Tables[0].Relationships = []model.RelationshipPlan{{
+		Kind: "foreign_key", Name: "orders_customer_fk", Exclude: true,
+		Columns: []string{"customer_id"}, ParentTable: "customers", ParentColumns: []string{"customer_id"},
+	}}
+
+	if _, err := WriteSchemas(plan, Options{OutDir: dir, RelationshipMode: "metadata", Overwrite: true}); err != nil {
+		t.Fatalf("WriteSchemas returned error: %v", err)
+	}
+	payload := readFile(t, filepath.Join(dir, "orders", "schema.yaml"))
+	assertContains(t, payload, "fieldName: customer_id\n")
+	if strings.Contains(payload, "ParentRelation") || strings.Contains(payload, "foreignKey:") {
+		t.Fatalf("excluded relationship generated as ParentRelation:\n%s", payload)
+	}
+}
+
 func TestWriteSchemasEmitsParentColumnForStringNaturalKeyRelationships(t *testing.T) {
 	dir := t.TempDir()
 	maxLen := int64(7)

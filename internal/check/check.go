@@ -256,6 +256,17 @@ func checkTimeQuantum(result *Result, table model.TablePlan, fields map[string]m
 }
 
 func checkRelationships(result *Result, table model.TablePlan, tableNames map[string]struct{}, fields map[string]model.FieldPlan, opts Options) {
+	for _, relationship := range table.Relationships {
+		if relationship.Exclude {
+			result.add(Issue{
+				Severity:     SeverityWarn,
+				Code:         "relationship_excluded",
+				Table:        table.Name,
+				Relationship: relationship.Name,
+				Detail:       "Relationship will be omitted and its source column preserved as an ordinary field.",
+			})
+		}
+	}
 	included := includedRelationships(table.Relationships, opts.RelationshipMode)
 	skippedCandidates := skippedCandidateCount(table.Relationships, opts.RelationshipMode)
 	if opts.RelationshipMode == "metadata" && skippedCandidates > 0 {
@@ -329,6 +340,9 @@ func checkRelationships(result *Result, table model.TablePlan, tableNames map[st
 func includedRelationships(relationships []model.RelationshipPlan, mode string) []model.RelationshipPlan {
 	var included []model.RelationshipPlan
 	for _, relationship := range relationships {
+		if relationship.Exclude {
+			continue
+		}
 		switch mode {
 		case "all":
 			if relationship.Kind == "foreign_key" || relationship.Kind == "candidate_foreign_key" {
@@ -349,7 +363,7 @@ func skippedCandidateCount(relationships []model.RelationshipPlan, mode string) 
 	}
 	var count int
 	for _, relationship := range relationships {
-		if relationship.Kind == "candidate_foreign_key" {
+		if !relationship.Exclude && relationship.Kind == "candidate_foreign_key" {
 			count++
 		}
 	}

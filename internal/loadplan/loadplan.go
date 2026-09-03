@@ -102,6 +102,9 @@ func LoadOrder(plan model.MigrationPlan, relationshipMode string) ([]string, err
 			if relationship.ParentTable == table.Name {
 				continue
 			}
+			if _, exists := deps[table.Name][relationship.ParentTable]; exists {
+				continue
+			}
 			deps[table.Name][relationship.ParentTable] = struct{}{}
 			children[relationship.ParentTable] = append(children[relationship.ParentTable], table.Name)
 		}
@@ -136,7 +139,7 @@ func LoadOrder(plan model.MigrationPlan, relationshipMode string) ([]string, err
 			cycleTables = append(cycleTables, tableName)
 		}
 		sort.Strings(cycleTables)
-		return nil, fmt.Errorf("relationship cycle prevents load ordering: %s", strings.Join(cycleTables, ", "))
+		return nil, fmt.Errorf("relationship cycle prevents load ordering: %s; review the cycle and set exclude: true on one relationship to preserve its column as an ordinary field", strings.Join(cycleTables, ", "))
 	}
 	return order, nil
 }
@@ -152,6 +155,9 @@ func includedTablesByName(plan model.MigrationPlan) map[string]model.TablePlan {
 }
 
 func includeRelationship(relationship model.RelationshipPlan, mode string) bool {
+	if relationship.Exclude {
+		return false
+	}
 	switch mode {
 	case "all":
 		return relationship.Kind == "foreign_key" || relationship.Kind == "candidate_foreign_key"
