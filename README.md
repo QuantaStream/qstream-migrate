@@ -164,6 +164,27 @@ field, while the remaining foreign keys are generated as relationship vectors.
 This is an explicit modeling decision: QuantaStream cannot yet add the deferred
 foreign key and build its relationship vector after loading populated tables.
 
+The excluded column remains available for filtering, projection, and explicit
+equality joins. It simply does not have QuantaStream's native relationship-vector
+metadata or execution path. Choose which edge to exclude before generation and
+prefer retaining the relationship used by the most important or frequent joins.
+
+This limitation cannot be repaired safely with a catalog-only schema edit. A
+plain foreign-key column stores the source key value, while a `ParentRelation`
+field stores the resolved internal row ID of the parent. Supporting `ALTER TABLE
+... ADD FOREIGN KEY` on a populated table therefore requires QuantaStream to:
+
+1. validate parent-key uniqueness and child/parent type compatibility;
+2. scan all populated child rows for orphaned keys;
+3. resolve every source key to its parent row ID and build the relationship vector;
+4. build the associated reverse relationship artifacts; and
+5. publish the schema and artifacts atomically with crash recovery.
+
+QuantaStream may add this initially as a quiesced standard-mode DDL operation.
+Distributed execution requires additional cluster-wide coordination. Until that
+work exists, changing `exclude: true` requires generating a replacement schema
+and reloading the data rather than altering the migrated database in place.
+
 Relationship mode changes the physical QuantaStream model. A generated
 `ParentRelation` field stores a relationship vector to the parent row rather
 than a plain source value. Query parent labels through joins, or stay in flat
