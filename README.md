@@ -31,6 +31,9 @@ A useful migration assistant should:
 
 ## Current Status
 
+For a star-schema migration example, see the
+[FoodMart walkthrough](docs/FOODMART_WALKTHROUGH.md).
+
 The current release-candidate scope is a MySQL-to-QuantaStream migration
 assistant:
 
