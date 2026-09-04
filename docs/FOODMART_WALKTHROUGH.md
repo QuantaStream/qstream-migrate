@@ -118,6 +118,51 @@ Review generated mapper choices and time-partitioning warnings before loading.
 Dates on dimensions are not automatically a reason to partition those tables,
 and the fact contains a `time_id` rather than a physical timestamp.
 
+## 5. Add the analytical view
+
+After loading the seven tables, apply the Tableau-friendly base view:
+
+```bash
+mysql -h 127.0.0.1 -P 4000 -u qstream -D quanta \
+  < examples/foodmart/views.sql
+```
+
+`foodmart_sales_base` presents the complete sales star through one semantic
+surface. It includes customer geography, product hierarchy, promotion, store,
+calendar, sales, cost, units, and calculated gross profit. QuantaStream can
+prune unused relationship joins, so consumers do not pay a meaningful penalty
+for dimensions whose columns are absent from a query.
+
+Try a product-department rollup:
+
+```sql
+SELECT
+  product_department,
+  SUM(store_sales) AS sales,
+  SUM(gross_profit) AS gross_profit,
+  SUM(unit_sales) AS units,
+  COUNT(*) AS fact_rows
+FROM foodmart_sales_base
+GROUP BY product_department
+ORDER BY sales DESC
+LIMIT 10;
+```
+
+Or compare monthly sales by store geography:
+
+```sql
+SELECT
+  sales_year,
+  sales_month,
+  store_country,
+  store_state,
+  SUM(store_sales) AS sales,
+  SUM(gross_profit) AS gross_profit
+FROM foodmart_sales_base
+GROUP BY sales_year, sales_month, store_country, store_state
+ORDER BY sales_year, sales_month, sales DESC;
+```
+
 ## Observed reference counts
 
 The source revisions tested on September 3, 2026 produced 36 tables overall.
